@@ -2,7 +2,8 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: ["main"] # 如果您的預設分支是 master，請改成 master
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -23,7 +24,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       
-      - name: Setup Node.js
+      - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -41,7 +42,6 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # 指向 vite 打包後輸出的 dist 資料夾
           path: './dist'
           
       - name: Deploy to GitHub Pages
