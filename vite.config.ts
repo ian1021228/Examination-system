@@ -5,6 +5,6 @@ import tailwindcss from '@tailwindcss/vite'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  base: '/Examination-system-test/', // 加上這個讓 GitHub Pages 能夠正確載入 CSS/JS 資源
+  base: './', // 使用相對路徑，這樣部署到任何子目錄都能正常載入資源
 })
 
