@@ -71,7 +71,7 @@ export interface SubjectConfig {
 }
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  apiKey: "AIzaSyCMwOOb0ib_gl5A2cgqw9Lqfrw8D_zJoQM",
   authDomain: "ket-training-9b88d.firebaseapp.com",
   projectId: "ket-training-9b88d",
   storageBucket: "ket-training-9b88d.firebasestorage.app",
