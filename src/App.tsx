@@ -40,6 +40,7 @@ export interface Task {
   targetUnits: number[]; // e.g. [1, 2, 3]
   difficulty: 'easy' | 'medium' | 'hard' | 'mixed';
   questionCount: number;
+  maxHearts?: number;
   isActive: boolean;
   createdAt: number;
 }
@@ -195,7 +196,7 @@ export function AdminSubjectView() {
             {activeTab === 'tasks' && <TasksTab tasks={tasks} subjectId={subjectId} onRefresh={fetchData} config={config} questions={questions} />}
             {activeTab === 'questions' && <QuestionsTab questions={questions} onRefresh={fetchData} subjectId={subjectId} />}
             {activeTab === 'import' && <ImportTab subjectId={subjectId} config={config} />}
-            {activeTab === 'attempts' && <AttemptsTab attempts={attempts} questions={questions} tasks={tasks} />}
+            {activeTab === 'attempts' && <AttemptsTab attempts={attempts} questions={questions} tasks={tasks} onRefresh={fetchData} />}
             {activeTab === 'paper' && <PaperTestTab questions={questions} attempts={attempts} subjectId={subjectId} />}
             {activeTab === 'settings' && <SettingsTab config={config} subjectId={subjectId} />}
           </>
@@ -219,9 +220,11 @@ function Tab({ btnTab, current, set, label, icon }: any) {
 
 export function TasksTab({ tasks, subjectId, onRefresh, config, questions = [] }: { tasks: Task[], subjectId: Subject, onRefresh: () => void, config: SubjectConfig, questions?: Question[] }) {
   const [showForm, setShowForm] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [diff, setDiff] = useState<'easy'|'medium'|'hard'|'mixed'>('mixed');
   const [count, setCount] = useState(10);
+  const [maxHearts, setMaxHearts] = useState<number>(3);
   const [units, setUnits] = useState<number[]>([]);
 
   const availableCount = (() => {
@@ -242,12 +245,29 @@ export function TasksTab({ tasks, subjectId, onRefresh, config, questions = [] }
     }
 
     try {
-      await addDoc(collection(db, 'tasks'), {
-        title, subject: subjectId, targetUnits: units, difficulty: diff, questionCount: count, isActive: true, createdAt: Date.now()
-      });
+      if (editingTaskId) {
+        await updateDoc(doc(db, 'tasks', editingTaskId), {
+          title, targetUnits: units, difficulty: diff, questionCount: count, maxHearts: maxHearts || 0
+        });
+        setEditingTaskId(null);
+      } else {
+        await addDoc(collection(db, 'tasks'), {
+          title, subject: subjectId, targetUnits: units, difficulty: diff, questionCount: count, maxHearts: maxHearts || 0, isActive: true, createdAt: Date.now()
+        });
+      }
       setShowForm(false);
       onRefresh();
     } catch(e) { console.error(e); }
+  };
+
+  const handleEditTask = (t: Task) => {
+    setTitle(t.title);
+    setDiff(t.difficulty);
+    setCount(t.questionCount);
+    setUnits(t.targetUnits || []);
+    setMaxHearts(t.maxHearts || 0);
+    setEditingTaskId(t.id);
+    setShowForm(true);
   };
 
   const toggleUnit = (u: number) => {
@@ -264,32 +284,53 @@ export function TasksTab({ tasks, subjectId, onRefresh, config, questions = [] }
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h3 className="text-xl font-bold text-white">任務列表</h3>
-        <button onClick={() => setShowForm(!showForm)} className="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded-lg text-white font-bold text-sm">
+        <button onClick={() => {
+            if (showForm) {
+                setShowForm(false);
+                setEditingTaskId(null);
+            } else {
+                setTitle(''); setDiff('mixed'); setCount(10); setUnits([]); setMaxHearts(3);
+                setShowForm(true);
+            }
+        }} className="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded-lg text-white font-bold text-sm">
           {showForm ? '取消' : '新增任務'}
         </button>
       </div>
 
       {showForm && (
         <div className="bg-gray-800 p-6 rounded-2xl space-y-4">
-          <input type="text" placeholder="任務標題 (e.g. 第一次段考模擬)" value={title} onChange={e => setTitle(e.target.value)} className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white" />
+          <div className="flex flex-col space-y-1">
+            <label className="text-xs text-gray-400">任務標題</label>
+            <input type="text" placeholder="任務標題 (e.g. 第一次段考模擬)" value={title} onChange={e => setTitle(e.target.value)} className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white" />
+          </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="flex flex-col space-y-1">
+              <label className="text-xs text-gray-400">難度設定</label>
               <select value={diff} onChange={e => setDiff(e.target.value as any)} className="bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white">
                 <option value="mixed">混合難度</option><option value="easy">簡單</option><option value="medium">中等</option><option value="hard">困難</option>
               </select>
               <span className="text-xs text-purple-400">符合條件的題庫數量: {availableCount} 題</span>
             </div>
-            <input type="number" placeholder="題數" value={count || ''} onChange={e => setCount(parseInt(e.target.value) || 0)} className="bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white h-[42px]" />
+            <div className="flex space-x-2">
+                <div className="w-1/2 flex flex-col space-y-1">
+                  <label className="text-xs text-gray-400">發布題數</label>
+                  <input type="number" placeholder="題數" value={count || ''} onChange={e => setCount(parseInt(e.target.value) || 0)} className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white h-[42px]" />
+                </div>
+                <div className="w-1/2 flex flex-col space-y-1">
+                  <label className="text-xs text-gray-400">容錯數量 (0為不限)</label>
+                  <input type="number" placeholder="最多錯幾題(0=不限)" value={maxHearts === 0 ? '' : maxHearts} onChange={e => setMaxHearts(parseInt(e.target.value) || 0)} className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white h-[42px]" title="最多錯幾題 (愛心數量，0代表無限)" />
+                </div>
+            </div>
           </div>
           <div>
-            <p className="text-sm text-gray-400 mb-2">選擇範圍 (單元): {units.length === 0 ? '全部' : units.join(', ')}</p>
+            <label className="text-xs text-gray-400 block mb-2">選擇範圍 (單元): {units.length === 0 ? '全部' : units.join(', ')}</label>
             <div className="flex flex-wrap gap-2">
               {Array.from({length: config.totalUnits || 10}).map((_, i) => (
                 <button key={i+1} onClick={() => toggleUnit(i+1)} className={`px-3 py-1 rounded-lg text-sm ${units.includes(i+1) ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300'}`}>單元 {i+1}</button>
               ))}
             </div>
           </div>
-          <button onClick={handleCreate} className="w-full bg-green-600 hover:bg-green-500 py-2 rounded-lg text-white font-bold">發布任務</button>
+          <button onClick={handleCreate} className="w-full bg-green-600 hover:bg-green-500 py-2 rounded-lg text-white font-bold">{editingTaskId ? '儲存變更' : '發布任務'}</button>
         </div>
       )}
 
@@ -298,11 +339,16 @@ export function TasksTab({ tasks, subjectId, onRefresh, config, questions = [] }
           <div key={t.id} className="bg-gray-800/50 border border-gray-700 p-4 rounded-xl flex justify-between items-center">
             <div>
               <p className="font-bold text-white">{t.title} {t.isActive ? <span className="text-xs bg-green-900/50 text-green-400 px-2 py-1 rounded ml-2">進行中</span> : <span className="text-xs bg-gray-700 text-gray-400 px-2 py-1 rounded ml-2">已停用</span>}</p>
-              <p className="text-xs text-gray-400 mt-1">難度: {t.difficulty} | 題數: {t.questionCount} | 範圍: {t.targetUnits.length ? t.targetUnits.join(',') : '全部'}</p>
+              <p className="text-xs text-gray-400 mt-1">難度: {t.difficulty} | 題數: {t.questionCount} | 愛心: {t.maxHearts ? t.maxHearts : '無限'} | 範圍: {t.targetUnits.length ? t.targetUnits.join(',') : '全部'}</p>
             </div>
-            <button onClick={() => toggleTaskActive(t)} className="text-sm bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded-lg text-white">
-              {t.isActive ? '停用' : '啟用'}
-            </button>
+            <div className="flex space-x-2">
+                <button onClick={() => handleEditTask(t)} className="text-sm bg-blue-700 hover:bg-blue-600 px-3 py-1.5 rounded-lg text-white">
+                  編輯
+                </button>
+                <button onClick={() => toggleTaskActive(t)} className="text-sm bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded-lg text-white">
+                  {t.isActive ? '停用' : '啟用'}
+                </button>
+            </div>
           </div>
         ))}
         {tasks.length === 0 && <p className="text-gray-500">目前沒有任務</p>}
@@ -325,10 +371,50 @@ export function QuestionsTab({ questions, onRefresh, subjectId }: { questions: Q
   const [newAnswer, setNewAnswer] = useState('');
   const [newOptions, setNewOptions] = useState('');
 
+  const [selectedQuestions, setSelectedQuestions] = useState<string[]>([]);
+
   const handleDelete = async (id: string) => {
     if (confirm('確定刪除此題目？')) {
       await deleteDoc(doc(db, 'questions', id));
       if (onRefresh) onRefresh();
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedQuestions.length === 0) return alert('請先勾選題目');
+    if (confirm(`確定刪除選取的 ${selectedQuestions.length} 題？`)) {
+      for (const id of selectedQuestions) {
+        await deleteDoc(doc(db, 'questions', id));
+      }
+      setSelectedQuestions([]);
+      if (onRefresh) onRefresh();
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    if (questions.length === 0) return alert('目前沒有題目');
+    if (confirm(`確定刪除題庫中所有的 ${questions.length} 題？ 此動作無法復原！`)) {
+      for (const q of questions) {
+        await deleteDoc(doc(db, 'questions', q.id));
+      }
+      setSelectedQuestions([]);
+      if (onRefresh) onRefresh();
+    }
+  };
+
+  const toggleSelectQuestion = (id: string) => {
+    if (selectedQuestions.includes(id)) {
+      setSelectedQuestions(selectedQuestions.filter(x => x !== id));
+    } else {
+      setSelectedQuestions([...selectedQuestions, id]);
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedQuestions.length === questions.length) {
+      setSelectedQuestions([]);
+    } else {
+      setSelectedQuestions(questions.map(q => q.id));
     }
   };
 
@@ -410,8 +496,16 @@ export function QuestionsTab({ questions, onRefresh, subjectId }: { questions: Q
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-xl font-bold text-white">題庫一覽 ({questions.length} 題)</h3>
+        <h3 className="text-xl font-bold text-white flex items-center">
+            題庫一覽 ({questions.length} 題)
+            {selectedQuestions.length > 0 && <span className="ml-4 text-sm text-purple-400">已選取 {selectedQuestions.length} 題</span>}
+        </h3>
         <div className="flex space-x-2">
+          {selectedQuestions.length > 0 && (
+              <button onClick={handleBulkDelete} className="bg-red-600 hover:bg-red-500 text-white px-3 py-1.5 rounded text-sm font-bold transition-all mr-2">刪除選取</button>
+          )}
+          <button onClick={handleDeleteAll} className="bg-red-900/50 border border-red-700 hover:bg-red-800 text-red-300 px-3 py-1.5 rounded text-sm font-bold transition-all mr-4">全部刪除</button>
+
           <button onClick={() => setShowAddForm(!showAddForm)} className="bg-green-600 hover:bg-green-500 text-white px-3 py-1.5 rounded text-sm font-bold transition-all"><Plus size={16} className="inline mr-1"/>新增題目</button>
           <button onClick={() => exportQuestions('pdf')} className="bg-red-500/10 hover:bg-red-500/30 text-red-400 border border-red-500/20 px-3 py-1.5 rounded text-sm font-bold transition-all" title="匯出成 PDF">匯出 PDF</button>
           <button onClick={() => exportQuestions('docx')} className="bg-blue-500/10 hover:bg-blue-500/30 text-blue-400 border border-blue-500/20 px-3 py-1.5 rounded text-sm font-bold transition-all" title="匯出成 DOCX">匯出 DOCX</button>
@@ -439,8 +533,16 @@ export function QuestionsTab({ questions, onRefresh, subjectId }: { questions: Q
       )}
 
       <div className="max-h-[500px] overflow-y-auto pr-2 space-y-2">
+        {questions.length > 0 && (
+            <div className="flex items-center px-4 py-2 bg-gray-900 rounded-lg border border-gray-700 mb-2">
+                <input type="checkbox" checked={selectedQuestions.length === questions.length} onChange={toggleSelectAll} className="w-4 h-4 mr-3" />
+                <span className="text-sm text-gray-400">全選</span>
+            </div>
+        )}
         {questions.map(q => (
-          <div key={q.id} className="bg-gray-800/50 border border-gray-700 p-4 rounded-xl text-sm relative group">
+          <div key={q.id} className="bg-gray-800/50 border border-gray-700 p-4 rounded-xl text-sm relative group flex items-start">
+            <input type="checkbox" checked={selectedQuestions.includes(q.id)} onChange={() => toggleSelectQuestion(q.id)} className="w-4 h-4 mt-1 mr-3 flex-shrink-0" />
+            <div className="flex-grow w-full">
             {editingId === q.id ? (
               <div className="space-y-3">
                 <div><label className="text-xs text-gray-400">題目</label><input value={editPrompt} onChange={e => setEditPrompt(e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white" placeholder="題目內容" /></div>
@@ -470,6 +572,7 @@ export function QuestionsTab({ questions, onRefresh, subjectId }: { questions: Q
                 <p className="text-gray-400 mt-1">答案: <span className="text-green-400">{q.correctAnswer}</span></p>
               </>
             )}
+            </div>
           </div>
         ))}
         {questions.length === 0 && <p className="text-gray-500">目前沒有題庫資料</p>}
@@ -538,8 +641,8 @@ export function ImportTab({ subjectId, config }: { subjectId: Subject, config: S
   const processData = async (data: any[]) => {
     let count = 0;
     for (const item of data) {
-      const prompt = item.prompt || item['題目'] || item.Question;
-      const correctAnswer = item.correctAnswer || item['答案'] || item.Answer;
+      const prompt = item.prompt || item['題目'] || item.Question || item['句子填空'] || item['單字（中文）'];
+      const correctAnswer = item.correctAnswer || item['答案'] || item.Answer || item['單字（英文）'];
       if (!prompt || !correctAnswer) continue;
 
       let options = item.options || item['選項'] || item.Options || null;
@@ -549,14 +652,26 @@ export function ImportTab({ subjectId, config }: { subjectId: Subject, config: S
 
       let itemUnit = item.unit || item['單元'] || item.Unit || 1;
       let itemDiff = item.difficulty || item['難度'] || item.Difficulty || 'medium';
-      let itemType = item.type || item['題型'] || item.Type || 'multiple_choice';
+      let itemType = item.type || item['題型'] || item.Type;
       
+      if (!itemType) {
+        itemType = options && options.length > 0 ? 'multiple_choice' : 'fill_in_the_blank';
+      }
+
       if (itemDiff === '簡單') itemDiff = 'easy';
       if (itemDiff === '中等') itemDiff = 'medium';
       if (itemDiff === '困難') itemDiff = 'hard';
-      
+
       if (itemType === '選擇題') itemType = 'multiple_choice';
       if (itemType === '填空題') itemType = 'fill_in_the_blank';
+
+      let clue = item.clue || item['提示'] || item.Hint || null;
+      if (!clue) {
+        const customClues = [];
+        if (item['單字（中文）'] && prompt !== item['單字（中文）']) customClues.push(item['單字（中文）']);
+        if (item['句子中文']) customClues.push(item['句子中文']);
+        if (customClues.length > 0) clue = customClues.join(' / ');
+      }
 
       await addDoc(collection(db, 'questions'), {
         subject: subjectId,
@@ -566,7 +681,7 @@ export function ImportTab({ subjectId, config }: { subjectId: Subject, config: S
         prompt: String(prompt),
         options: options,
         correctAnswer: String(correctAnswer),
-        clue: item.clue || item['提示'] || item.Hint || null,
+        clue: clue,
         createdAt: Date.now()
       } as Omit<Question, 'id'>);
       count++;
@@ -652,29 +767,72 @@ export function ImportTab({ subjectId, config }: { subjectId: Subject, config: S
 
       <div className="bg-gray-800 p-4 rounded-xl mt-4 text-sm text-gray-400">
         <p className="font-bold text-gray-300 mb-2">Excel 欄位說明 (標題行)：</p>
-        <ul className="list-disc pl-5 space-y-1">
+        <ul className="list-disc pl-5 space-y-1 mb-2">
           <li><span className="text-purple-300">題目 (必填)</span>: 也可以寫 prompt 或 Question</li>
           <li><span className="text-purple-300">答案 (必填)</span>: 也可以寫 correctAnswer 或 Answer</li>
           <li>選項: 選擇題的選項，請用半形逗號 <code className="bg-gray-700 px-1 rounded">,</code> 分隔</li>
           <li>提示: 也可以寫 clue</li>
           <li>其他可選欄位: 單元、難度 (簡單/中等/困難)、題型 (選擇題/填空題)</li>
         </ul>
+        <p className="font-bold text-gray-300 mb-2 mt-4">也支援特定英文單字表格式：</p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li>包含 <span className="text-blue-300">單字（英文）</span>、<span className="text-blue-300">單字（中文）</span>、<span className="text-blue-300">句子填空</span>、<span className="text-blue-300">句子中文</span> 欄位可直接匯入！</li>
+          <li>系統會自動判定為「填空題」，並將中文與句子翻譯作為提示。</li>
+        </ul>
       </div>
     </div>
   );
 }
 
-export function AttemptsTab({ attempts, questions, tasks }: { attempts: Attempt[], questions: Question[], tasks: Task[] }) {
+export function AttemptsTab({ attempts, questions, tasks, onRefresh }: { attempts: Attempt[], questions: Question[], tasks: Task[], onRefresh: () => void }) {
   const [selectedTask, setSelectedTask] = useState<string>('all');
   const [search, setSearch] = useState('');
+  const [selectedAttempts, setSelectedAttempts] = useState<string[]>([]);
+  const [deleting, setDeleting] = useState(false);
 
+  const toggleSelectAttempt = (id: string) => {
+    setSelectedAttempts(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const toggleSelectAllAttempts = () => {
+    if (selectedAttempts.length === searchedAttempts.length) {
+      setSelectedAttempts([]);
+    } else {
+      setSelectedAttempts(searchedAttempts.map(a => a.id));
+    }
+  };
+
+  const handleDeleteAttempts = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    if (!confirm(`確定要刪除 ${ids.length} 筆紀錄嗎？此動作無法復原。`)) return;
+    setDeleting(true);
+    try {
+      for (const id of ids) {
+        await deleteDoc(doc(db, 'attempts', id));
+      }
+      setSelectedAttempts([]);
+      onRefresh();
+    } catch(e) {
+      console.error(e);
+      alert('刪除失敗');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const [selectedUserFilter, setSelectedUserFilter] = useState<string>('all');
   const filteredAttempts = selectedTask === 'all' ? attempts : attempts.filter(a => a.taskId === selectedTask);
-  const searchedAttempts = filteredAttempts.filter(a => 
+  const userFilteredAttempts = selectedUserFilter === 'all' ? filteredAttempts : filteredAttempts.filter(a => a.userId === selectedUserFilter);
+  const searchedAttempts = userFilteredAttempts.filter(a => 
     a.userDisplayName?.toLowerCase().includes(search.toLowerCase())
   ).sort((a, b) => b.timestamp - a.timestamp);
+  
+  const uniqueUsers = Array.from(new Set(filteredAttempts.map(a => a.userId))).map(id => {
+    return { id, name: filteredAttempts.find(a => a.userId === id)?.userDisplayName || '未知' };
+  });
 
   // Group by student
-  const studentStats = filteredAttempts.reduce((acc, att) => {
+  const studentStats = userFilteredAttempts.reduce((acc, att) => {
     if (!acc[att.userId]) {
       acc[att.userId] = { 
         name: att.userDisplayName || '匿名', 
@@ -695,11 +853,11 @@ export function AttemptsTab({ attempts, questions, tasks }: { attempts: Attempt[
 
   const studentList = Object.values(studentStats).sort((a, b) => b.bestScore - a.bestScore);
   const activePlayers = Object.keys(studentStats).length;
-  const avgScore = filteredAttempts.length > 0 ? Math.round(filteredAttempts.reduce((s, a) => s + a.score, 0) / filteredAttempts.length) : 0;
-  const highScore = filteredAttempts.length > 0 ? Math.max(...filteredAttempts.map(a => a.score)) : 0;
+  const avgScore = userFilteredAttempts.length > 0 ? Math.round(userFilteredAttempts.reduce((s, a) => s + a.score, 0) / userFilteredAttempts.length) : 0;
+  const highScore = userFilteredAttempts.length > 0 ? Math.max(...userFilteredAttempts.map(a => a.score)) : 0;
 
   // Find all difficult questions
-  const wrongCountMap = filteredAttempts.reduce((acc, att) => {
+  const wrongCountMap = userFilteredAttempts.reduce((acc, att) => {
     att.wrongQuestionIds.forEach(id => {
       acc[id] = (acc[id] || 0) + 1;
     });
@@ -713,7 +871,7 @@ export function AttemptsTab({ attempts, questions, tasks }: { attempts: Attempt[
     })
     .sort((a, b) => b.count - a.count);
 
-  const chartData = [...filteredAttempts].sort((a, b) => a.timestamp - b.timestamp).map(a => {
+  const chartData = [...userFilteredAttempts].sort((a, b) => a.timestamp - b.timestamp).map(a => {
     const d = new Date(a.timestamp);
     return {
       name: `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
@@ -760,16 +918,28 @@ export function AttemptsTab({ attempts, questions, tasks }: { attempts: Attempt[
     <div className="space-y-6 w-full">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h3 className="text-xl font-bold text-white">測驗數據分析</h3>
-        <select 
-          value={selectedTask} 
-          onChange={e => setSelectedTask(e.target.value)}
-          className="bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white min-w-[200px]"
-        >
-          <option value="all">全部任務</option>
-          {tasks.map(t => (
-            <option key={t.id} value={t.id}>{t.title}</option>
-          ))}
-        </select>
+        <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
+            <select 
+              value={selectedTask} 
+              onChange={e => setSelectedTask(e.target.value)}
+              className="bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white min-w-[200px]"
+            >
+              <option value="all">全部任務</option>
+              {tasks.map(t => (
+                <option key={t.id} value={t.id}>{t.title}</option>
+              ))}
+            </select>
+            <select 
+              value={selectedUserFilter} 
+              onChange={e => setSelectedUserFilter(e.target.value)}
+              className="bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white min-w-[150px]"
+            >
+              <option value="all">全部使用者</option>
+              {uniqueUsers.map(u => (
+                <option key={u.id} value={u.id}>{u.name}</option>
+              ))}
+            </select>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -834,13 +1004,28 @@ export function AttemptsTab({ attempts, questions, tasks }: { attempts: Attempt[
 
       <div className="bg-gray-800/60 border border-gray-700 rounded-3xl p-6">
         <div className="flex flex-col sm:flex-row justify-between gap-4 mb-4 items-center">
-          <h3 className="font-bold text-gray-200">實時答題歷史明細</h3>
-          <input type="text" placeholder="搜尋姓名..." value={search} onChange={e => setSearch(e.target.value)} className="bg-gray-900 border border-gray-700 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-purple-500" />
+          <div className="flex items-center space-x-4">
+             <h3 className="font-bold text-gray-200">實時答題歷史明細</h3>
+             {selectedAttempts.length > 0 && (
+                <button disabled={deleting} onClick={() => handleDeleteAttempts(selectedAttempts)} className="bg-red-600 hover:bg-red-500 text-white px-3 py-1 rounded-lg text-xs font-bold transition-colors">
+                   刪除已選 ({selectedAttempts.length})
+                </button>
+             )}
+          </div>
+          <div className="flex space-x-2">
+            <input type="text" placeholder="搜尋姓名..." value={search} onChange={e => setSearch(e.target.value)} className="bg-gray-900 border border-gray-700 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-purple-500" />
+            <button disabled={deleting || searchedAttempts.length === 0} onClick={() => handleDeleteAttempts(searchedAttempts.map(a => a.id))} className="bg-red-900/40 border border-red-500/40 text-red-400 hover:bg-red-800/60 px-4 py-2 rounded-xl text-sm font-bold transition-colors">
+               刪除全部結果
+            </button>
+          </div>
         </div>
         <div className="overflow-x-auto rounded-2xl border border-gray-700 bg-gray-900/30">
           <table className="w-full text-left text-sm whitespace-nowrap">
             <thead className="bg-gray-800/60 text-xs text-gray-400">
               <tr>
+                <th className="p-4 w-10">
+                   <input type="checkbox" checked={searchedAttempts.length > 0 && selectedAttempts.length === searchedAttempts.length} onChange={toggleSelectAllAttempts} className="w-4 h-4 rounded border-gray-600" />
+                </th>
                 <th className="p-4">日期</th>
                 <th className="p-4">姓名</th>
                 <th className="p-4">得分</th>
@@ -851,6 +1036,9 @@ export function AttemptsTab({ attempts, questions, tasks }: { attempts: Attempt[
             <tbody>
               {searchedAttempts.map(a => (
                 <tr key={a.id} className="border-b border-gray-700/50 hover:bg-gray-800/30">
+                  <td className="p-4">
+                     <input type="checkbox" checked={selectedAttempts.includes(a.id)} onChange={() => toggleSelectAttempt(a.id)} className="w-4 h-4 rounded border-gray-600" />
+                  </td>
                   <td className="p-4 text-gray-300">{new Date(a.timestamp).toLocaleString('zh-TW', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
                   <td className="p-4 text-white">{a.userDisplayName}</td>
                   <td className="p-4 text-yellow-400 font-bold">{a.score}</td>
@@ -859,7 +1047,7 @@ export function AttemptsTab({ attempts, questions, tasks }: { attempts: Attempt[
                 </tr>
               ))}
               {searchedAttempts.length === 0 && (
-                <tr><td colSpan={5} className="p-4 text-center text-gray-500">沒有找到相符的紀錄</td></tr>
+                <tr><td colSpan={6} className="p-4 text-center text-gray-500">沒有找到相符的紀錄</td></tr>
               )}
             </tbody>
           </table>
@@ -1507,6 +1695,7 @@ export function Gameplay({ user }: { user: UserProfile }) {
   const [combo, setCombo] = useState(0);
   const [energy, setEnergy] = useState(0);
   const [lastEffect, setLastEffect] = useState<'correct'|'wrong'|null>(null);
+  const [showingWrongAnswer, setShowingWrongAnswer] = useState(false);
   
   const [inputVal, setInputVal] = useState('');
   
@@ -1531,6 +1720,7 @@ export function Gameplay({ user }: { user: UserProfile }) {
         }
         const taskData = { id: taskSnap.id, ...taskSnap.data() } as Task;
         setTask(taskData);
+        setLives(taskData.maxHearts || 9999);
         
         // Fetch questions for this subject
         let qQuery = query(collection(db, 'questions'), where('subject', '==', taskData.subject));
@@ -1569,7 +1759,39 @@ export function Gameplay({ user }: { user: UserProfile }) {
     initGame();
   }, [taskId, navigate]);
 
+  const proceedToNext = async (currentScore: number, isCorrect: boolean, currentLives: number, currentWrongIds: string[]) => {
+    if (currentLives <= 0 || currentIndex + 1 >= questions.length) {
+      // Game over
+      const timeTaken = Date.now() - startTime;
+      const totalQuestions = currentIndex + 1;
+      const correctAnswers = totalQuestions - currentWrongIds.length;
+      const accuracy = Math.round((correctAnswers / totalQuestions) * 100);
+      
+      try {
+        const attemptRef = await addDoc(collection(db, 'attempts'), {
+          taskId: task!.id,
+          userId: user.uid,
+          userDisplayName: user.displayName,
+          subject: task!.subject,
+          score: currentScore,
+          accuracy,
+          timeTaken,
+          wrongQuestionIds: currentWrongIds,
+          timestamp: Date.now()
+        } as Omit<Attempt, 'id'>);
+        
+        navigate(`/gameover/${attemptRef.id}`);
+      } catch(e) {
+        console.error(e);
+        alert('儲存成績失敗');
+      }
+    } else {
+      setCurrentIndex(i => i + 1);
+    }
+  };
+
   const handleAnswer = async (answer: string) => {
+    if (showingWrongAnswer) return;
     const currentQ = questions[currentIndex];
     
     // Check if the correct answer is Chinese
@@ -1601,6 +1823,11 @@ export function Gameplay({ user }: { user: UserProfile }) {
       setCombo(currentCombo);
       setEnergy(currentEnergy);
       setScore(currentScore);
+      
+      setTimeout(() => setLastEffect(null), 600);
+      setInputVal('');
+      
+      proceedToNext(currentScore, true, lives, wrongQuestionIds);
     } else {
       setLastEffect('wrong');
       if (engineRef.current) {
@@ -1611,40 +1838,19 @@ export function Gameplay({ user }: { user: UserProfile }) {
       
       setCombo(currentCombo);
       setEnergy(currentEnergy);
-      setLives(l => l - 1);
-      setWrongQuestionIds(prev => [...prev, currentQ.id]);
-    }
-    
-    setTimeout(() => setLastEffect(null), 600);
-    setInputVal('');
-    
-    if (lives - (isCorrect ? 0 : 1) <= 0 || currentIndex + 1 >= questions.length) {
-      // Game over
-      const timeTaken = Date.now() - startTime;
-      const totalQuestions = currentIndex + 1;
-      const correctAnswers = totalQuestions - wrongQuestionIds.length - (isCorrect ? 0 : 1);
-      const accuracy = Math.round((correctAnswers / totalQuestions) * 100);
+      const newLives = lives - 1;
+      setLives(newLives);
+      const newWrongIds = [...wrongQuestionIds, currentQ.id];
+      setWrongQuestionIds(newWrongIds);
       
-      try {
-        const attemptRef = await addDoc(collection(db, 'attempts'), {
-          taskId: task!.id,
-          userId: user.uid,
-          userDisplayName: user.displayName,
-          subject: task!.subject,
-          score: currentScore,
-          accuracy,
-          timeTaken,
-          wrongQuestionIds: [...wrongQuestionIds, ...(isCorrect ? [] : [currentQ.id])],
-          timestamp: Date.now()
-        } as Omit<Attempt, 'id'>);
-        
-        navigate(`/gameover/${attemptRef.id}`);
-      } catch(e) {
-        console.error(e);
-        alert('儲存成績失敗');
-      }
-    } else {
-      setCurrentIndex(i => i + 1);
+      setTimeout(() => setLastEffect(null), 600);
+      setInputVal('');
+      
+      setShowingWrongAnswer(true);
+      setTimeout(() => {
+        setShowingWrongAnswer(false);
+        proceedToNext(currentScore, false, newLives, newWrongIds);
+      }, 2000);
     }
   };
 
@@ -1663,10 +1869,11 @@ export function Gameplay({ user }: { user: UserProfile }) {
         <div className="bg-gray-900/60 backdrop-blur-md border border-gray-800 rounded-2xl p-4 flex items-center justify-between">
         <div className="flex items-center space-x-2">
           <div className="text-xs text-gray-400 font-mono tracking-wider mr-1">LIVES:</div>
-          <div className="flex space-x-1.5 text-red-500">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <span key={i} className={i < lives ? 'opacity-100' : 'opacity-20'}>❤️</span>
+          <div className="flex space-x-1.5 text-red-500 text-lg">
+            {task.maxHearts !== 0 && Array.from({ length: task.maxHearts || 3 }).map((_, i) => (
+              <span key={i} className={i < lives ? 'opacity-100' : 'opacity-20 grayscale'}>❤️</span>
             ))}
+            {task.maxHearts === 0 && <span className="text-purple-400 font-bold text-sm">無限</span>}
           </div>
         </div>
         <div className="text-right">
@@ -1715,8 +1922,17 @@ export function Gameplay({ user }: { user: UserProfile }) {
         
         {currentQ.clue && (
           <p className="text-sm text-gray-400 bg-gray-950/40 py-2 px-4 rounded-xl border border-gray-800/40 inline-block mb-6">
-            提示: {currentQ.clue}
+            提示: {task.subject === 'ket' ? currentQ.clue.split(' / ')[0] : currentQ.clue}
           </p>
+        )}
+
+        {showingWrongAnswer && (
+          <div className="bg-red-900/20 border border-red-500/50 p-4 rounded-xl mb-6 relative overflow-hidden text-center">
+             <p className="text-red-200 font-bold mb-2">正確答案：<span className="text-white text-xl ml-2">{currentQ.correctAnswer}</span></p>
+             <div className="w-full bg-red-900/50 h-1 absolute bottom-0 left-0">
+               <div className="bg-red-500 h-1" style={{ animation: 'shrinkWidth 2s linear forwards' }}></div>
+             </div>
+          </div>
         )}
         
         {currentQ.type === 'multiple_choice' && currentQ.options ? (
