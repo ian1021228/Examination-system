@@ -53,6 +53,8 @@ export interface Attempt {
   subject: Subject;
   score: number;
   accuracy: number;
+  correctCount?: number;
+  totalAnswered?: number;
   timeTaken: number;
   wrongQuestionIds: string[];
   timestamp: number;
@@ -1029,6 +1031,7 @@ export function AttemptsTab({ attempts, questions, tasks, onRefresh }: { attempt
                 <th className="p-4">日期</th>
                 <th className="p-4">姓名</th>
                 <th className="p-4">得分</th>
+                <th className="p-4">答對題數</th>
                 <th className="p-4">準確度</th>
                 <th className="p-4">花費時間</th>
               </tr>
@@ -1042,6 +1045,7 @@ export function AttemptsTab({ attempts, questions, tasks, onRefresh }: { attempt
                   <td className="p-4 text-gray-300">{new Date(a.timestamp).toLocaleString('zh-TW', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
                   <td className="p-4 text-white">{a.userDisplayName}</td>
                   <td className="p-4 text-yellow-400 font-bold">{a.score}</td>
+                  <td className="p-4 text-blue-400">{a.correctCount !== undefined ? `${a.correctCount} / ${a.totalAnswered}` : '-'}</td>
                   <td className="p-4 text-green-400">{a.accuracy}%</td>
                   <td className="p-4 text-gray-400">{Math.floor(a.timeTaken / 1000)} 秒</td>
                 </tr>
@@ -1775,6 +1779,8 @@ export function Gameplay({ user }: { user: UserProfile }) {
           subject: task!.subject,
           score: currentScore,
           accuracy,
+          correctCount: correctAnswers,
+          totalAnswered: totalQuestions,
           timeTaken,
           wrongQuestionIds: currentWrongIds,
           timestamp: Date.now()
@@ -1999,10 +2005,14 @@ export function GameOver() {
         <h2 className="text-3xl font-black tracking-wider text-white">任務完成！</h2>
         <p className="text-gray-400 mt-2 text-sm">成績已紀錄至指揮中心。</p>
         
-        <div className="grid grid-cols-2 gap-4 my-8">
+        <div className="grid grid-cols-3 gap-4 my-8">
           <div className="bg-gray-950/60 border border-gray-800 rounded-2xl p-4">
             <p className="text-xs text-gray-400 font-mono">最終分數</p>
             <p className="text-3xl font-black text-yellow-400 mt-1">{attempt.score}</p>
+          </div>
+          <div className="bg-gray-950/60 border border-gray-800 rounded-2xl p-4">
+            <p className="text-xs text-gray-400 font-mono">答對題數</p>
+            <p className="text-3xl font-black text-blue-400 mt-1">{attempt.correctCount !== undefined ? `${attempt.correctCount} / ${attempt.totalAnswered}` : '-'}</p>
           </div>
           <div className="bg-gray-950/60 border border-gray-800 rounded-2xl p-4">
             <p className="text-xs text-gray-400 font-mono">答對率</p>
