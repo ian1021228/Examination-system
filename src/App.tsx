@@ -45,6 +45,15 @@ export interface Task {
   createdAt: number;
 }
 
+export interface AttemptAnswer {
+  questionId: string;
+  questionPrompt: string;
+  userAnswer: string;
+  correctAnswer: string;
+  isCorrect: boolean;
+  timeTaken: number;
+}
+
 export interface Attempt {
   id: string;
   taskId: string;
@@ -57,6 +66,7 @@ export interface Attempt {
   totalAnswered?: number;
   timeTaken: number;
   wrongQuestionIds: string[];
+  answers?: AttemptAnswer[];
   timestamp: number;
 }
 
@@ -461,8 +471,61 @@ export function QuestionsTab({ questions, onRefresh, subjectId }: { questions: Q
     if (onRefresh) onRefresh();
   };
 
-  const exportQuestions = (format: 'pdf' | 'docx') => {
+  const exportQuestions = (format: 'pdf' | 'docx' | 'csv' | 'xlsx' | 'json') => {
     if (questions.length === 0) return alert('沒有題庫資料');
+    
+    if (format === 'json') {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(questions, null, 2));
+      const downloadAnchorNode = document.createElement('a');
+      downloadAnchorNode.setAttribute("href", dataStr);
+      downloadAnchorNode.setAttribute("download", `題庫_${Date.now()}.json`);
+      document.body.appendChild(downloadAnchorNode);
+      downloadAnchorNode.click();
+      downloadAnchorNode.remove();
+      return;
+    }
+
+    if (format === 'csv') {
+      let csvContent = "data:text/csv;charset=utf-8,\uFEFF單元,難度,題型,題目,正確答案,選項,提示\n";
+      questions.forEach(q => {
+        const row = [
+          q.unit,
+          q.difficulty,
+          q.type,
+          `"${q.prompt.replace(/"/g, '""')}"`,
+          `"${q.correctAnswer.replace(/"/g, '""')}"`,
+          `"${(q.options||[]).join(',').replace(/"/g, '""')}"`,
+          `"${(q.clue||'').replace(/"/g, '""')}"`
+        ].join(',');
+        csvContent += row + "\n";
+      });
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `題庫_${Date.now()}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      return;
+    }
+
+    if (format === 'xlsx') {
+      const wsData = questions.map(q => ({
+        單元: q.unit,
+        難度: q.difficulty === 'easy' ? '簡單' : q.difficulty === 'medium' ? '中等' : '困難',
+        題型: q.type === 'multiple_choice' ? '選擇題' : '填空題',
+        題目: q.prompt,
+        正確答案: q.correctAnswer,
+        選項: (q.options || []).join(', '),
+        提示: q.clue || ''
+      }));
+      const ws = XLSX.utils.json_to_sheet(wsData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "題庫");
+      XLSX.writeFile(wb, `題庫_${Date.now()}.xlsx`);
+      return;
+    }
+
     let html = `<div style="text-align:center; margin-bottom:20px;"><h2 style="color:#4b5563; font-size:24px;">題庫總覽</h2><p style="color:#6b7280; font-size:14px;">產出時間：${new Date().toLocaleString('zh-TW')} | 共計：${questions.length} 題</p></div>`;
     
     html += `<table style="width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed;">
@@ -509,8 +572,11 @@ export function QuestionsTab({ questions, onRefresh, subjectId }: { questions: Q
           <button onClick={handleDeleteAll} className="bg-red-900/50 border border-red-700 hover:bg-red-800 text-red-300 px-3 py-1.5 rounded text-sm font-bold transition-all mr-4">全部刪除</button>
 
           <button onClick={() => setShowAddForm(!showAddForm)} className="bg-green-600 hover:bg-green-500 text-white px-3 py-1.5 rounded text-sm font-bold transition-all"><Plus size={16} className="inline mr-1"/>新增題目</button>
-          <button onClick={() => exportQuestions('pdf')} className="bg-red-500/10 hover:bg-red-500/30 text-red-400 border border-red-500/20 px-3 py-1.5 rounded text-sm font-bold transition-all" title="匯出成 PDF">匯出 PDF</button>
-          <button onClick={() => exportQuestions('docx')} className="bg-blue-500/10 hover:bg-blue-500/30 text-blue-400 border border-blue-500/20 px-3 py-1.5 rounded text-sm font-bold transition-all" title="匯出成 DOCX">匯出 DOCX</button>
+          <button onClick={() => exportQuestions('pdf')} className="bg-red-500/10 hover:bg-red-500/30 text-red-400 border border-red-500/20 px-3 py-1.5 rounded text-sm font-bold transition-all" title="匯出成 PDF">PDF</button>
+          <button onClick={() => exportQuestions('docx')} className="bg-blue-500/10 hover:bg-blue-500/30 text-blue-400 border border-blue-500/20 px-3 py-1.5 rounded text-sm font-bold transition-all" title="匯出成 DOCX">DOCX</button>
+          <button onClick={() => exportQuestions('csv')} className="bg-green-500/10 hover:bg-green-500/30 text-green-400 border border-green-500/20 px-3 py-1.5 rounded text-sm font-bold transition-all" title="匯出成 CSV">CSV</button>
+          <button onClick={() => exportQuestions('xlsx')} className="bg-yellow-500/10 hover:bg-yellow-500/30 text-yellow-400 border border-yellow-500/20 px-3 py-1.5 rounded text-sm font-bold transition-all" title="匯出成 XLSX">XLSX</button>
+          <button onClick={() => exportQuestions('json')} className="bg-purple-500/10 hover:bg-purple-500/30 text-purple-400 border border-purple-500/20 px-3 py-1.5 rounded text-sm font-bold transition-all" title="匯出成 JSON">JSON</button>
         </div>
       </div>
 
@@ -791,6 +857,7 @@ export function AttemptsTab({ attempts, questions, tasks, onRefresh }: { attempt
   const [search, setSearch] = useState('');
   const [selectedAttempts, setSelectedAttempts] = useState<string[]>([]);
   const [deleting, setDeleting] = useState(false);
+  const [expandedAttemptId, setExpandedAttemptId] = useState<string | null>(null);
 
   const toggleSelectAttempt = (id: string) => {
     setSelectedAttempts(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -1038,20 +1105,49 @@ export function AttemptsTab({ attempts, questions, tasks, onRefresh }: { attempt
             </thead>
             <tbody>
               {searchedAttempts.map(a => (
-                <tr key={a.id} className="border-b border-gray-700/50 hover:bg-gray-800/30">
-                  <td className="p-4">
-                     <input type="checkbox" checked={selectedAttempts.includes(a.id)} onChange={() => toggleSelectAttempt(a.id)} className="w-4 h-4 rounded border-gray-600" />
-                  </td>
-                  <td className="p-4 text-gray-300">{new Date(a.timestamp).toLocaleString('zh-TW', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
-                  <td className="p-4 text-white">{a.userDisplayName}</td>
-                  <td className="p-4 text-yellow-400 font-bold">{a.score}</td>
-                  <td className="p-4 text-blue-400">{a.correctCount !== undefined ? `${a.correctCount} / ${a.totalAnswered}` : '-'}</td>
-                  <td className="p-4 text-green-400">{a.accuracy}%</td>
-                  <td className="p-4 text-gray-400">{Math.floor(a.timeTaken / 1000)} 秒</td>
-                </tr>
+                <React.Fragment key={a.id}>
+                  <tr className="border-b border-gray-700/50 hover:bg-gray-800/30 cursor-pointer" onClick={() => setExpandedAttemptId(expandedAttemptId === a.id ? null : a.id)}>
+                    <td className="p-4" onClick={e => e.stopPropagation()}>
+                       <input type="checkbox" checked={selectedAttempts.includes(a.id)} onChange={() => toggleSelectAttempt(a.id)} className="w-4 h-4 rounded border-gray-600" />
+                    </td>
+                    <td className="p-4 text-gray-300">{new Date(a.timestamp).toLocaleString('zh-TW', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+                    <td className="p-4 text-white flex items-center">{a.userDisplayName} {a.answers && <span className="ml-2 text-[10px] bg-purple-900/50 text-purple-300 px-2 py-0.5 rounded">可展開</span>}</td>
+                    <td className="p-4 text-yellow-400 font-bold">{a.score}</td>
+                    <td className="p-4 text-blue-400">{a.correctCount !== undefined ? `${a.correctCount} / ${a.totalAnswered}` : (a.answers ? `${a.answers.filter(ans=>ans.isCorrect).length} / ${a.answers.length}` : `${Math.round(a.accuracy * (a.totalAnswered||a.score/100) / 100)} / ${a.totalAnswered || a.score/100}`)}</td>
+                    <td className="p-4 text-green-400">{a.accuracy}%</td>
+                    <td className="p-4 text-gray-400">{Math.floor(a.timeTaken / 1000)} 秒</td>
+                  </tr>
+                  {expandedAttemptId === a.id && a.answers && (
+                    <tr className="bg-gray-950/40 border-b border-gray-700/50">
+                      <td colSpan={7} className="p-4 whitespace-normal">
+                        <div className="space-y-3 p-2">
+                          <h4 className="text-sm font-bold text-gray-300 flex items-center">
+                            <List size={16} className="mr-2" /> 答題詳情明細
+                          </h4>
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                            {a.answers.map((ans, idx) => (
+                              <div key={idx} className={`p-4 rounded-xl border ${ans.isCorrect ? 'border-green-500/20 bg-green-900/10' : 'border-red-500/20 bg-red-900/10'}`}>
+                                <p className="text-sm text-white mb-2 leading-relaxed"><span className="text-purple-400 font-bold mr-2">Q{idx + 1}</span> {ans.questionPrompt}</p>
+                                <div className="flex justify-between items-end mt-2">
+                                  <div className="space-y-1">
+                                    <p className="text-xs text-gray-400">你的答案: <span className={`font-bold ${ans.isCorrect ? 'text-green-400' : 'text-red-400 line-through'}`}>{ans.userAnswer || '(未作答)'}</span></p>
+                                    {!ans.isCorrect && <p className="text-xs text-gray-400">正確答案: <span className="text-green-400 font-bold">{ans.correctAnswer}</span></p>}
+                                  </div>
+                                  <div className="text-xs text-gray-500 font-mono bg-gray-900 px-2 py-1 rounded">
+                                    ⏱️ {(ans.timeTaken / 1000).toFixed(1)}s
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               ))}
               {searchedAttempts.length === 0 && (
-                <tr><td colSpan={6} className="p-4 text-center text-gray-500">沒有找到相符的紀錄</td></tr>
+                <tr><td colSpan={7} className="p-4 text-center text-gray-500">沒有找到相符的紀錄</td></tr>
               )}
             </tbody>
           </table>
@@ -1703,6 +1799,13 @@ export function Gameplay({ user }: { user: UserProfile }) {
   
   const [inputVal, setInputVal] = useState('');
   
+  const [attemptAnswers, setAttemptAnswers] = useState<AttemptAnswer[]>([]);
+  const [questionStartTime, setQuestionStartTime] = useState(Date.now());
+  
+  useEffect(() => {
+    setQuestionStartTime(Date.now());
+  }, [currentIndex]);
+  
   useEffect(() => {
     if (canvasRef.current) {
       engineRef.current = new ParticleEngine(canvasRef.current);
@@ -1763,7 +1866,7 @@ export function Gameplay({ user }: { user: UserProfile }) {
     initGame();
   }, [taskId, navigate]);
 
-  const proceedToNext = async (currentScore: number, isCorrect: boolean, currentLives: number, currentWrongIds: string[]) => {
+  const proceedToNext = async (currentScore: number, isCorrect: boolean, currentLives: number, currentWrongIds: string[], currentAnswers: AttemptAnswer[]) => {
     if (currentLives <= 0 || currentIndex + 1 >= questions.length) {
       // Game over
       const timeTaken = Date.now() - startTime;
@@ -1783,6 +1886,7 @@ export function Gameplay({ user }: { user: UserProfile }) {
           totalAnswered: totalQuestions,
           timeTaken,
           wrongQuestionIds: currentWrongIds,
+          answers: currentAnswers,
           timestamp: Date.now()
         } as Omit<Attempt, 'id'>);
         
@@ -1812,6 +1916,18 @@ export function Gameplay({ user }: { user: UserProfile }) {
         isCorrect = answer.toLowerCase().trim() === currentQ.correctAnswer.toLowerCase().trim();
     }
     
+    const timeTakenForQuestion = Date.now() - questionStartTime;
+    const newAnswer: AttemptAnswer = {
+      questionId: currentQ.id,
+      questionPrompt: currentQ.prompt,
+      userAnswer: answer,
+      correctAnswer: currentQ.correctAnswer,
+      isCorrect,
+      timeTaken: timeTakenForQuestion
+    };
+    const newAnswers = [...attemptAnswers, newAnswer];
+    setAttemptAnswers(newAnswers);
+
     let currentScore = score;
     let currentCombo = combo;
     let currentEnergy = energy;
@@ -1833,7 +1949,7 @@ export function Gameplay({ user }: { user: UserProfile }) {
       setTimeout(() => setLastEffect(null), 600);
       setInputVal('');
       
-      proceedToNext(currentScore, true, lives, wrongQuestionIds);
+      proceedToNext(currentScore, true, lives, wrongQuestionIds, newAnswers);
     } else {
       setLastEffect('wrong');
       if (engineRef.current) {
@@ -1855,7 +1971,7 @@ export function Gameplay({ user }: { user: UserProfile }) {
       setShowingWrongAnswer(true);
       setTimeout(() => {
         setShowingWrongAnswer(false);
-        proceedToNext(currentScore, false, newLives, newWrongIds);
+        proceedToNext(currentScore, false, newLives, newWrongIds, newAnswers);
       }, 2000);
     }
   };
@@ -2012,7 +2128,7 @@ export function GameOver() {
           </div>
           <div className="bg-gray-950/60 border border-gray-800 rounded-2xl p-4">
             <p className="text-xs text-gray-400 font-mono">答對題數</p>
-            <p className="text-3xl font-black text-blue-400 mt-1">{attempt.correctCount !== undefined ? `${attempt.correctCount} / ${attempt.totalAnswered}` : '-'}</p>
+            <p className="text-3xl font-black text-blue-400 mt-1">{attempt.correctCount !== undefined ? `${attempt.correctCount} / ${attempt.totalAnswered}` : (attempt.answers ? `${attempt.answers.filter(ans=>ans.isCorrect).length} / ${attempt.answers.length}` : `${Math.round(attempt.accuracy * (attempt.totalAnswered||attempt.score/100) / 100)} / ${attempt.totalAnswered || attempt.score/100}`)}</p>
           </div>
           <div className="bg-gray-950/60 border border-gray-800 rounded-2xl p-4">
             <p className="text-xs text-gray-400 font-mono">答對率</p>
