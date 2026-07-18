@@ -625,11 +625,11 @@ export function QuestionsTab({ questions, onRefresh, subjectId }: { questions: Q
 請根據提供的「科目」、「單元大綱」與「期望題數」，生成題庫。請嚴格按照以下 JSON 格式產出。
 
 # Generation Rules (命題規則)
-1. 題型 (type)：必須混合產出以下三種題型：
+1. 題型 (type)：必須產出以下三種基本題型之一：
    - 選擇題 (multiple_choice)：提供 4 個選項。
    - 填空題 (fill_in_the_blank)：題目中需使用底線（___）。
    - 題組 (question_group)：包含一段主文本（prompt）與數個子問題（subQuestions）。
-2. 多媒體題 (Multimedia)：若適合搭配圖片、影片或音訊，可提供 mediaUrl 與 mediaType。mediaType 可填寫 image, youtube, 或 audio。
+2. 多媒體題 (Multimedia)：多媒體題「不是」一個獨立的 type，它是選擇題或填空題搭配多媒體。如果使用者要求產出多媒體題，type 仍然必須是 multiple_choice 或 fill_in_the_blank，但請在該物件中額外提供 mediaUrl (例如填入相關假網址如 https://picsum.photos/400/300 或 YouTube 網址) 與 mediaType (填寫 image, youtube, 或 audio)。系統會根據是否有 mediaUrl 自動將其歸類為多媒體題。
 3. 每個物件必須包含單元 (unit)、難易度 (difficulty)、詳解 (explanation)。
 
 # JSON Output Format
@@ -640,9 +640,9 @@ export function QuestionsTab({ questions, onRefresh, subjectId }: { questions: Q
     "options": ["選項A", "選項B", "選項C", "選項D"], // 若無則省略
     "unit": 1,
     "difficulty": "easy", // easy, medium, hard
-    "type": "multiple_choice", // multiple_choice, fill_in_the_blank, question_group
+    "type": "multiple_choice", // 必須是 multiple_choice, fill_in_the_blank, 或 question_group
     "explanation": "解題詳解",
-    "mediaUrl": "https://...", // 選填，例如圖片連結或YouTube連結
+    "mediaUrl": "https://picsum.photos/400/300", // 選填，若需生成多媒體題才提供
     "mediaType": "image", // image, youtube, audio (若有 mediaUrl 則必填)
     "subQuestions": [ // 僅在 type 為 question_group 時提供
       {
@@ -1160,6 +1160,13 @@ export function ImportTab({ subjectId, config }: { subjectId: Subject, config: S
 
       if (itemType === '選擇題') itemType = 'multiple_choice';
       if (itemType === '填空題') itemType = 'fill_in_the_blank';
+      if (itemType === '多媒體題' || itemType === 'multimedia') {
+        itemType = options && options.length > 0 ? 'multiple_choice' : 'fill_in_the_blank';
+        if (!item.mediaUrl && !item['多媒體連結']) {
+            item.mediaUrl = 'https://picsum.photos/400/300';
+            item.mediaType = 'image';
+        }
+      }
 
       let clue = item.clue || item['提示'] || item.Hint || null;
       if (!clue) {
@@ -1253,13 +1260,15 @@ export function ImportTab({ subjectId, config }: { subjectId: Subject, config: S
       const data = parseRobustJSON(textInput);
       if (!Array.isArray(data)) throw new Error('內容必須是 JSON 陣列');
       
-      const promptsToDelete = data.map((item: any) => item.prompt ? item.prompt.replace(/\[SOURCE_IMAGE\]/g, '') : '').filter(Boolean);
+      const cleanPrompt = (p: string) => (p || '').replace(/\[SOURCE_IMAGE\]/g, '').trim();
+      const promptsToDelete = data.map((item: any) => cleanPrompt(item.prompt)).filter(Boolean);
       if (promptsToDelete.length === 0) throw new Error('找不到要刪除的題目內容');
 
       const qSnapshot = await getDocs(query(collection(db, 'questions'), where('subject', '==', subjectId)));
       const questionsToDelete: string[] = [];
       qSnapshot.forEach(doc => {
-        if (promptsToDelete.includes(doc.data().prompt)) {
+        const dbPrompt = cleanPrompt(doc.data().prompt);
+        if (promptsToDelete.includes(dbPrompt)) {
           questionsToDelete.push(doc.id);
         }
       });
