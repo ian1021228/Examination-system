@@ -1,5 +1,3 @@
-import { confirmModal } from './confirm';
-import { toast } from "./toast";
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useNavigate, useParams, Link, useLocation } from 'react-router-dom';
 import { initializeApp } from 'firebase/app';
@@ -22,29 +20,19 @@ export const SUBJECT_LABELS: Record<Subject, string> = {
   ket: 'KET 英文'
 };
 
-export interface SubQuestion {
-  id: string;
-  type: 'multiple_choice' | 'fill_in_the_blank';
-  prompt: string;
-  options?: string[];
-  correctAnswer: string;
-  explanation?: string;
-}
-
 export interface Question {
   id: string;
   subject: Subject;
   unit: number;
   difficulty: 'easy' | 'medium' | 'hard';
-  type: 'multiple_choice' | 'fill_in_the_blank' | 'question_group';
-  prompt: string;
-  options?: string[];
-  correctAnswer: string;
-  clue?: string;
-  mediaUrl?: string;
-  mediaType?: 'image' | 'youtube' | 'audio';
+  type: 'multiple_choice' | 'fill_in_the_blank';
+  prompt: string; // The question text
+  options?: string[]; // For multiple choice
+  correctAnswer: string; // The exact answer text
+  clue?: string; // Optional hint
+  mediaUrl?: string; // Optional multimedia URL
+  mediaType?: 'image' | 'youtube' | 'audio'; // Multimedia type
   explanation?: string;
-  subQuestions?: SubQuestion[];
   createdAt: number;
 }
 
@@ -52,19 +40,13 @@ export interface Task {
   id: string;
   title: string;
   subject: Subject;
-  targetUnits: number[];
+  targetUnits: number[]; // e.g. [1, 2, 3]
   difficulty: 'easy' | 'medium' | 'hard' | 'mixed';
   gameMode?: 'normal' | 'survival' | 'speed';
   questionCount: number;
   mcCount?: number;
   fibCount?: number;
-  mmCount?: number;
-  qgCount?: number;
-  selectionMode?: 'random' | 'manual';
-  selectedQuestionIds?: string[];
   maxHearts?: number;
-  timeLimit?: number;
-  antiCheat?: boolean;
   isActive: boolean;
   createdAt: number;
 }
@@ -267,89 +249,44 @@ export function TasksTab({ tasks, subjectId, onRefresh, config, questions = [] }
   const [gameMode, setGameMode] = useState<'normal'|'survival'|'speed'>('normal');
   const [mcCount, setMcCount] = useState(10);
   const [fibCount, setFibCount] = useState(10);
-  const [mmCount, setMmCount] = useState(0);
-  const [qgCount, setQgCount] = useState(0);
-  const [selectionMode, setSelectionMode] = useState<'random'|'manual'>('random');
-  const [manualSelectedQs, setManualSelectedQs] = useState<string[]>([]);
-  const [manualFilter, setManualFilter] = useState<string>('all');
   const [maxHearts, setMaxHearts] = useState<number>(3);
-  const [timeLimit, setTimeLimit] = useState<number>(10);
-  const [antiCheat, setAntiCheat] = useState<boolean>(false);
   const [units, setUnits] = useState<number[]>([]);
 
-  const availableMmCount = useMemo(() => {
-    let q = questions.filter(x => !!x.mediaUrl);
-    if (units.length > 0) q = q.filter(x => units.includes(x.unit));
-    if (diff !== 'mixed') q = q.filter(x => x.difficulty === diff);
-    return q.length;
-  }, [questions, units, diff]);
-
-  const availableQgCount = useMemo(() => {
-    let q = questions.filter(x => !x.mediaUrl && x.type === 'question_group');
-    if (units.length > 0) q = q.filter(x => units.includes(x.unit));
-    if (diff !== 'mixed') q = q.filter(x => x.difficulty === diff);
-    return q.length;
-  }, [questions, units, diff]);
-
   const availableMcCount = useMemo(() => {
-    let q = questions.filter(x => !x.mediaUrl && x.type === 'multiple_choice');
+    let q = questions.filter(x => x.type === 'multiple_choice');
     if (units.length > 0) q = q.filter(x => units.includes(x.unit));
     if (diff !== 'mixed') q = q.filter(x => x.difficulty === diff);
     return q.length;
   }, [questions, units, diff]);
 
   const availableFibCount = useMemo(() => {
-    let q = questions.filter(x => !x.mediaUrl && x.type === 'fill_in_the_blank');
+    let q = questions.filter(x => x.type === 'fill_in_the_blank');
     if (units.length > 0) q = q.filter(x => units.includes(x.unit));
     if (diff !== 'mixed') q = q.filter(x => x.difficulty === diff);
     return q.length;
   }, [questions, units, diff]);
 
-  const filteredManualQuestions = useMemo(() => {
-    let q = questions;
-    if (units.length > 0) q = q.filter(x => units.includes(x.unit));
-    if (diff !== 'mixed') q = q.filter(x => x.difficulty === diff);
-    if (manualFilter === 'multimedia') q = q.filter(x => !!x.mediaUrl);
-    else if (manualFilter !== 'all') q = q.filter(x => x.type === manualFilter && !x.mediaUrl);
-    return q;
-  }, [questions, units, diff, manualFilter]);
-
   const handleCreate = async () => {
-    if (selectionMode === 'random') {
-      if (mcCount > availableMcCount || fibCount > availableFibCount || mmCount > availableMmCount || qgCount > availableQgCount) {
-        toast(`錯誤：題數大於圖庫中符合條件的題數。\n選擇題: ${mcCount} / ${availableMcCount}
-填空題: ${fibCount} / ${availableFibCount}
-題組: ${qgCount} / ${availableQgCount}
-多媒體: ${mmCount} / ${availableMmCount}`);
-        return;
-      }
+    if (mcCount > availableMcCount || fibCount > availableFibCount) {
+      alert(`錯誤：題數大於圖庫中符合條件的題數。\n選擇題: ${mcCount} / ${availableMcCount}\n填空題: ${fibCount} / ${availableFibCount}`);
+      return;
     }
-    
-    const totalCount = selectionMode === 'random' ? (mcCount + fibCount + mmCount + qgCount) : manualSelectedQs.length;
+
+    const totalCount = mcCount + fibCount;
     if (totalCount === 0) {
-      toast('請至少設定一題');
+      alert('請至少設定一題');
       return;
     }
 
     try {
-      const taskData = {
-        title, targetUnits: units, difficulty: diff, gameMode, questionCount: totalCount,
-        selectionMode,
-        mcCount: selectionMode === 'random' ? mcCount : 0,
-        fibCount: selectionMode === 'random' ? fibCount : 0,
-        mmCount: selectionMode === 'random' ? mmCount : 0,
-        qgCount: selectionMode === 'random' ? qgCount : 0,
-        selectedQuestionIds: selectionMode === 'manual' ? manualSelectedQs : [],
-        maxHearts: gameMode === 'survival' ? (maxHearts || 1) : 0, 
-        timeLimit, antiCheat
-      };
-      
       if (editingTaskId) {
-        await updateDoc(doc(db, 'tasks', editingTaskId), taskData);
+        await updateDoc(doc(db, 'tasks', editingTaskId), {
+          title, targetUnits: units, difficulty: diff, gameMode, questionCount: totalCount, mcCount, fibCount, maxHearts: maxHearts || 0
+        });
         setEditingTaskId(null);
       } else {
         await addDoc(collection(db, 'tasks'), {
-          ...taskData, subject: subjectId, isActive: true, createdAt: Date.now()
+          title, subject: subjectId, targetUnits: units, difficulty: diff, gameMode, questionCount: totalCount, mcCount, fibCount, maxHearts: maxHearts || 0, isActive: true, createdAt: Date.now()
         });
       }
       setShowForm(false);
@@ -361,15 +298,14 @@ export function TasksTab({ tasks, subjectId, onRefresh, config, questions = [] }
     setTitle(t.title);
     setDiff(t.difficulty);
     setGameMode(t.gameMode || 'normal');
-    setSelectionMode(t.selectionMode || 'random');
-    setMcCount(t.mcCount || 0);
-    setFibCount(t.fibCount || 0);
-    setMmCount(t.mmCount || 0);
-    setQgCount(t.qgCount || 0);
-    setManualSelectedQs(t.selectedQuestionIds || []);
+    if (t.mcCount !== undefined || t.fibCount !== undefined) {
+      setMcCount(t.mcCount || 0);
+      setFibCount(t.fibCount || 0);
+    } else {
+      setMcCount(t.questionCount);
+      setFibCount(0);
+    }
     setMaxHearts(t.maxHearts || 0);
-    setTimeLimit(t.timeLimit || 10);
-    setAntiCheat(t.antiCheat || false);
     setUnits(t.targetUnits || []);
     setEditingTaskId(t.id);
     setShowForm(true);
@@ -440,91 +376,21 @@ export function TasksTab({ tasks, subjectId, onRefresh, config, questions = [] }
             </div>
           </div>
 
-          <div className="flex space-x-4 mb-2">
-            <label className="flex items-center space-x-2 text-sm font-bold text-[#4A3F35]">
-              <input type="radio" name="selectionMode" checked={selectionMode === 'random'} onChange={() => setSelectionMode('random')} className="accent-[#C2A878]" />
-              <span>依題數隨機出題</span>
-            </label>
-            <label className="flex items-center space-x-2 text-sm font-bold text-[#4A3F35]">
-              <input type="radio" name="selectionMode" checked={selectionMode === 'manual'} onChange={() => setSelectionMode('manual')} className="accent-[#C2A878]" />
-              <span>手動勾選題目</span>
-            </label>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="flex flex-col space-y-1">
+              <label className="text-xs text-[#8C7A6B]">選擇題數 (庫存: {availableMcCount})</label>
+              <input type="number" min="0" value={mcCount} onChange={e => setMcCount(parseInt(e.target.value)||0)} className="bg-[#FDFBF7] border border-[#EAE6DF] rounded-lg px-4 py-2 text-[#4A3F35]" />
+            </div>
+            <div className="flex flex-col space-y-1">
+              <label className="text-xs text-[#8C7A6B]">填空題數 (庫存: {availableFibCount})</label>
+              <input type="number" min="0" value={fibCount} onChange={e => setFibCount(parseInt(e.target.value)||0)} className="bg-[#FDFBF7] border border-[#EAE6DF] rounded-lg px-4 py-2 text-[#4A3F35]" />
+            </div>
+            <div className="flex flex-col space-y-1">
+              <label className="text-xs text-[#8C7A6B]">生命值限制 (愛心)</label>
+              <input type="number" min="0" placeholder="無限請填0" value={maxHearts} onChange={e => setMaxHearts(parseInt(e.target.value)||0)} className="bg-[#FDFBF7] border border-[#EAE6DF] rounded-lg px-4 py-2 text-[#4A3F35]" />
+            </div>
           </div>
 
-          {selectionMode === 'random' ? (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div className="flex flex-col space-y-1">
-                <label className="text-xs text-[#8C7A6B]">選擇題數 (庫存: {availableMcCount})</label>
-                <input type="number" min="0" value={mcCount} onChange={e => setMcCount(parseInt(e.target.value)||0)} className="bg-[#FDFBF7] border border-[#EAE6DF] rounded-lg px-4 py-2 text-[#4A3F35]" />
-              </div>
-              <div className="flex flex-col space-y-1">
-                <label className="text-xs text-[#8C7A6B]">填空題數 (庫存: {availableFibCount})</label>
-                <input type="number" min="0" value={fibCount} onChange={e => setFibCount(parseInt(e.target.value)||0)} className="bg-[#FDFBF7] border border-[#EAE6DF] rounded-lg px-4 py-2 text-[#4A3F35]" />
-              </div>
-              <div className="flex flex-col space-y-1">
-                <label className="text-xs text-[#8C7A6B]">題組題數 (庫存: {availableQgCount})</label>
-                <input type="number" min="0" value={qgCount} onChange={e => setQgCount(parseInt(e.target.value)||0)} className="bg-[#FDFBF7] border border-[#EAE6DF] rounded-lg px-4 py-2 text-[#4A3F35]" />
-              </div>
-              <div className="flex flex-col space-y-1">
-                <label className="text-xs text-[#8C7A6B]">多媒體題數 (庫存: {availableMmCount})</label>
-                <input type="number" min="0" value={mmCount} onChange={e => setMmCount(parseInt(e.target.value)||0)} className="bg-[#FDFBF7] border border-[#EAE6DF] rounded-lg px-4 py-2 text-[#4A3F35]" />
-              </div>
-            </div>
-          ) : (
-            <div className="border border-[#EAE6DF] rounded-lg p-4 bg-[#FDFBF7] max-h-60 overflow-y-auto">
-              <div className="flex space-x-2 mb-3 pb-3 border-b border-[#EAE6DF] overflow-x-auto">
-                <button onClick={() => setManualFilter('all')} className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap ${manualFilter === 'all' ? 'bg-[#4A3F35] text-white' : 'bg-[#EAE2D3] text-[#8C7A6B]'}`}>全部</button>
-                <button onClick={() => setManualFilter('multiple_choice')} className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap ${manualFilter === 'multiple_choice' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-800'}`}>選擇</button>
-                <button onClick={() => setManualFilter('fill_in_the_blank')} className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap ${manualFilter === 'fill_in_the_blank' ? 'bg-green-600 text-white' : 'bg-green-50 text-green-800'}`}>填空</button>
-                <button onClick={() => setManualFilter('question_group')} className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap ${manualFilter === 'question_group' ? 'bg-purple-600 text-white' : 'bg-purple-50 text-purple-800'}`}>題組</button>
-                <button onClick={() => setManualFilter('multimedia')} className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap ${manualFilter === 'multimedia' ? 'bg-orange-600 text-white' : 'bg-orange-50 text-orange-800'}`}>多媒體</button>
-              </div>
-              <div className="space-y-2">
-                {filteredManualQuestions.map(q => (
-                  <label key={q.id} className="flex items-start space-x-3 cursor-pointer group hover:bg-[#F5F5F0] p-1 rounded">
-                    <input type="checkbox" checked={manualSelectedQs.includes(q.id)} onChange={(e) => {
-                      if (e.target.checked) setManualSelectedQs([...manualSelectedQs, q.id]);
-                      else setManualSelectedQs(manualSelectedQs.filter(id => id !== q.id));
-                    }} className="mt-1 accent-[#C2A878]" />
-                    <div className="flex-1 text-sm text-[#4A3F35]">
-                      <div className="flex items-center space-x-2 mb-1">
-                        <span className="bg-[#EAE2D3] text-[#8C7A6B] px-1.5 py-0.5 rounded text-[10px] font-bold">U{q.unit}</span>
-                        {q.type === 'multiple_choice' && !q.mediaUrl && <span className="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded text-[10px] font-bold">選擇</span>}
-                        {q.type === 'fill_in_the_blank' && !q.mediaUrl && <span className="bg-green-100 text-green-800 px-1.5 py-0.5 rounded text-[10px] font-bold">填空</span>}
-                        {q.type === 'question_group' && !q.mediaUrl && <span className="bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded text-[10px] font-bold">題組</span>}
-                        {q.mediaUrl && <span className="bg-orange-100 text-orange-800 px-1.5 py-0.5 rounded text-[10px] font-bold">多媒體</span>}
-                      </div>
-                      <p className="line-clamp-2">{q.prompt.replace(/\[SOURCE_IMAGE\]/g, '')}</p>
-                    </div>
-                  </label>
-                ))}
-              </div>
-              <div className="mt-3 pt-3 border-t border-[#EAE6DF] text-sm font-bold text-[#4A3F35]">
-                已選 {manualSelectedQs.length} 題
-              </div>
-            </div>
-          )}
-          
-          <div className="grid grid-cols-2 gap-4">
-            {gameMode === 'survival' && (
-              <div className="flex flex-col space-y-1">
-                <label className="text-xs text-[#8C7A6B]">生命值限制 (愛心)</label>
-                <input type="number" min="1" value={maxHearts} onChange={e => setMaxHearts(parseInt(e.target.value)||1)} className="bg-[#FDFBF7] border border-[#EAE6DF] rounded-lg px-4 py-2 text-[#4A3F35]" />
-              </div>
-            )}
-            {gameMode === 'speed' && (
-              <div className="flex flex-col space-y-1">
-                <label className="text-xs text-[#8C7A6B]">每題作答秒數</label>
-                <input type="number" min="1" value={timeLimit} onChange={e => setTimeLimit(parseInt(e.target.value)||10)} className="bg-[#FDFBF7] border border-[#EAE6DF] rounded-lg px-4 py-2 text-[#4A3F35]" />
-              </div>
-            )}
-          </div>
-          <div className="mt-2 text-sm text-[#8C7A6B]">
-            <label className="flex items-center space-x-2">
-              <input type="checkbox" checked={antiCheat} onChange={e => setAntiCheat(e.target.checked)} className="rounded" />
-              <span>啟用防作弊 (偵測離開分頁次數)</span>
-            </label>
-          </div>
           <button onClick={handleCreate} className="w-full bg-[#4A3F35] hover:bg-[#5A4F45] text-white font-bold py-3 rounded-lg mt-4 transition-colors">
             {editingTaskId ? '儲存修改' : '建立任務'}
           </button>
@@ -544,7 +410,7 @@ export function TasksTab({ tasks, subjectId, onRefresh, config, questions = [] }
             </div>
             <div className="text-sm text-[#8C7A6B] space-y-1">
               <p>模式: {t.gameMode === 'survival' ? '生存' : t.gameMode === 'speed' ? '速答' : '一般'}</p>
-              <p>總題數: {t.questionCount} {t.selectionMode === 'manual' ? '(手動選題)' : `(選擇 ${t.mcCount||0}, 填空 ${t.fibCount||0}, 題組 ${t.qgCount||0}, 多媒體 ${t.mmCount||0})`}</p>
+              <p>總題數: {t.questionCount} (選擇 {t.mcCount}, 填空 {t.fibCount})</p>
               <p>難度: {t.difficulty === 'mixed' ? '混合' : t.difficulty === 'easy' ? '簡單' : t.difficulty === 'medium' ? '中等' : '困難'}</p>
               <p>範圍: {t.targetUnits?.length ? t.targetUnits.join(', ') : '全部單元'}</p>
               <p>愛心: {t.maxHearts ? t.maxHearts : '無限'}</p>
@@ -560,125 +426,19 @@ export function TasksTab({ tasks, subjectId, onRefresh, config, questions = [] }
   );
 }
 
-function SubQuestionEditor({ subQuestions, setSubQuestions }: { subQuestions: SubQuestion[], setSubQuestions: (sq: SubQuestion[]) => void }) {
-  const handleAddSq = () => {
-    setSubQuestions([...subQuestions, { id: Date.now().toString(), type: 'multiple_choice', prompt: '', correctAnswer: '', options: [] }]);
-  };
-  
-  const handleUpdateSq = (idx: number, updates: Partial<SubQuestion>) => {
-    const newSqs = [...subQuestions];
-    newSqs[idx] = { ...newSqs[idx], ...updates };
-    setSubQuestions(newSqs);
-  };
-  
-  const handleRemoveSq = (idx: number) => {
-    const newSqs = [...subQuestions];
-    newSqs.splice(idx, 1);
-    setSubQuestions(newSqs);
-  };
-
-  return (
-    <div className="mt-4 p-4 border border-[#EAE6DF] rounded-xl bg-[#FDFBF7]">
-      <h5 className="font-bold text-[#4A3F35] mb-3">子問題設定</h5>
-      {subQuestions.map((sq, idx) => (
-        <div key={sq.id} className="mb-4 pb-4 border-b border-[#D5CFC4] last:border-b-0 last:mb-0 last:pb-0 relative">
-          <button onClick={() => handleRemoveSq(idx)} className="absolute top-0 right-0 text-red-500 hover:text-red-700 text-xs font-bold bg-white px-2 py-1 rounded">刪除</button>
-          <div className="grid grid-cols-2 gap-3 mb-2 pr-12">
-            <div>
-              <label className="text-xs text-[#8C7A6B]">子問題題型</label>
-              <select value={sq.type} onChange={e => handleUpdateSq(idx, { type: e.target.value as any })} className="w-full bg-white border border-[#D5CFC4] rounded px-3 py-1 text-sm text-[#4A3F35]">
-                <option value="multiple_choice">選擇題</option>
-                <option value="fill_in_the_blank">填空題</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-xs text-[#8C7A6B]">正確答案</label>
-              <input value={sq.correctAnswer} onChange={e => handleUpdateSq(idx, { correctAnswer: e.target.value })} className="w-full bg-white border border-[#D5CFC4] rounded px-3 py-1 text-sm text-[#4A3F35]" placeholder="正確答案" />
-            </div>
-          </div>
-          <div className="mb-2">
-            <label className="text-xs text-[#8C7A6B]">題目內容</label>
-            <input value={sq.prompt} onChange={e => handleUpdateSq(idx, { prompt: e.target.value })} className="w-full bg-white border border-[#D5CFC4] rounded px-3 py-1 text-sm text-[#4A3F35]" placeholder="輸入子問題..." />
-          </div>
-          {sq.type === 'multiple_choice' && (
-            <div>
-              <label className="text-xs text-[#8C7A6B]">選項 (逗號分隔)</label>
-              <input value={sq.options?.join(', ') || ''} onChange={e => {
-                const opts = e.target.value.split(',').map(s => s.trim()).filter(s => s);
-                handleUpdateSq(idx, { options: opts });
-              }} className="w-full bg-white border border-[#D5CFC4] rounded px-3 py-1 text-sm text-[#4A3F35]" placeholder="A, B, C, D" />
-            </div>
-          )}
-        </div>
-      ))}
-      <button onClick={handleAddSq} className="mt-2 text-sm text-blue-600 font-bold px-3 py-1 bg-blue-50 hover:bg-blue-100 rounded">+ 新增子問題</button>
-    </div>
-  );
-}
-
 export function QuestionsTab({ questions, onRefresh, subjectId }: { questions: Question[], onRefresh: () => void, subjectId: Subject }) {
-  const downloadSkillTxt = () => {
-    const text = `# Role
-你是一位專業的教育測驗命題專家，專門設計高品質、符合教學邏輯的測驗題目。
-
-# Task
-請根據提供的「科目」、「單元大綱」與「期望題數」，生成題庫。請嚴格按照以下 JSON 格式產出。
-
-# Generation Rules (命題規則)
-1. 題型 (type)：必須混合產出以下三種題型：
-   - 選擇題 (multiple_choice)：提供 4 個選項。
-   - 填空題 (fill_in_the_blank)：題目中需使用底線（___）。
-   - 題組 (question_group)：包含一段主文本（prompt）與數個子問題（subQuestions）。
-2. 多媒體題 (Multimedia)：若適合搭配圖片、影片或音訊，可提供 mediaUrl 與 mediaType。mediaType 可填寫 image, youtube, 或 audio。
-3. 每個物件必須包含單元 (unit)、難易度 (difficulty)、詳解 (explanation)。
-
-# JSON Output Format
-[
-  {
-    "prompt": "題目內容（若為填空題請留 ___）",
-    "correctAnswer": "正確答案",
-    "options": ["選項A", "選項B", "選項C", "選項D"], // 若無則省略
-    "unit": 1,
-    "difficulty": "easy", // easy, medium, hard
-    "type": "multiple_choice", // multiple_choice, fill_in_the_blank, question_group
-    "explanation": "解題詳解",
-    "mediaUrl": "https://...", // 選填，例如圖片連結或YouTube連結
-    "mediaType": "image", // image, youtube, audio (若有 mediaUrl 則必填)
-    "subQuestions": [ // 僅在 type 為 question_group 時提供
-      {
-        "id": "sq1",
-        "type": "multiple_choice",
-        "prompt": "子問題1",
-        "options": ["A", "B", "C", "D"],
-        "correctAnswer": "A",
-        "explanation": "子問題1詳解"
-      }
-    ]
-  }
-]`;
-    const blob = new Blob([text], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'skill.txt';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   const [showAddForm, setShowAddForm] = useState(false);
   const [newPrompt, setNewPrompt] = useState('');
   const [newAnswer, setNewAnswer] = useState('');
   const [newOptions, setNewOptions] = useState('');
   const [newUnit, setNewUnit] = useState(1);
   const [newDiff, setNewDiff] = useState<'easy'|'medium'|'hard'>('medium');
-  const [newType, setNewType] = useState<'multiple_choice'|'fill_in_the_blank'|'question_group'>('multiple_choice');
-  const [newSubQuestions, setNewSubQuestions] = useState<SubQuestion[]>([]);
+  const [newType, setNewType] = useState<'multiple_choice'|'fill_in_the_blank'>('multiple_choice');
   const [newMediaUrl, setNewMediaUrl] = useState('');
   const [newMediaType, setNewMediaType] = useState<'image'|'youtube'|'audio'>('image');
   const [newExplanation, setNewExplanation] = useState('');
 
   const [selectedQuestions, setSelectedQuestions] = useState<string[]>([]);
-  const [filterType, setFilterType] = useState<string>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const [editPrompt, setEditPrompt] = useState('');
@@ -686,45 +446,32 @@ export function QuestionsTab({ questions, onRefresh, subjectId }: { questions: Q
   const [editOptions, setEditOptions] = useState('');
   const [editUnit, setEditUnit] = useState(1);
   const [editDiff, setEditDiff] = useState<'easy'|'medium'|'hard'>('medium');
-  const [editType, setEditType] = useState<'multiple_choice'|'fill_in_the_blank'|'question_group'>('multiple_choice');  
-  const [editSubQuestions, setEditSubQuestions] = useState<SubQuestion[]>([]);
+  const [editType, setEditType] = useState<'multiple_choice'|'fill_in_the_blank'>('multiple_choice');
   const [editMediaUrl, setEditMediaUrl] = useState('');
   const [editMediaType, setEditMediaType] = useState<'image'|'youtube'|'audio'>('image');
   const [editExplanation, setEditExplanation] = useState('');
 
   const handleAdd = async () => {
-    if (newType === 'question_group') {
-      if (!newPrompt || newSubQuestions.length === 0) return toast('請填寫文章內容與至少一題子問題');
-      for (const sq of newSubQuestions) {
-        if (!sq.prompt || !sq.correctAnswer) return toast('子問題必須包含題目與答案');
-        if (sq.type === 'multiple_choice' && (!sq.options || sq.options.length === 0)) return toast('選擇題子問題需有選項');
-        if (sq.type === 'multiple_choice' && !sq.options?.includes(sq.correctAnswer)) return toast('選擇題子問題正確答案必須在選項中');
-      }
-    } else {
-      if (!newPrompt || !newAnswer) return toast('請填寫題目與答案');
-    }
-
+    if (!newPrompt || !newAnswer) return alert('請填寫題目與答案');
     const options = newOptions.split(',').map(s => s.trim()).filter(s => s);
-    if (newType === 'multiple_choice' && options.length === 0) return toast('選擇題需有選項');
-    if (newType === 'multiple_choice' && !options.includes(newAnswer)) return toast('正確答案必須在選項中');
+    if (newType === 'multiple_choice' && options.length === 0) return alert('選擇題需有選項');
+    if (newType === 'multiple_choice' && !options.includes(newAnswer)) return alert('正確答案必須在選項中');
 
     try {
-      const data: any = {
+      await addDoc(collection(db, 'questions'), {
         subject: subjectId,
         unit: newUnit,
         difficulty: newDiff,
         type: newType,
-        prompt: newPrompt.replace(/\[SOURCE_IMAGE\]/g, ''),
-        correctAnswer: newType === 'question_group' ? '' : newAnswer,
+        prompt: newPrompt,
+        options: newType === 'multiple_choice' ? options : undefined,
+        correctAnswer: newAnswer,
         mediaUrl: newMediaUrl,
         mediaType: newMediaType,
         explanation: newExplanation
-      };
-      if (newType === 'multiple_choice') data.options = options;
-      if (newType === 'question_group') data.subQuestions = newSubQuestions.map((sq: any) => ({...sq, prompt: sq.prompt.replace(/\[SOURCE_IMAGE\]/g, '')}));
-      await addDoc(collection(db, 'questions'), data);
+      });
       setShowAddForm(false);
-      setNewPrompt(''); setNewAnswer(''); setNewOptions(''); setNewMediaUrl(''); setNewExplanation(''); setNewSubQuestions([]);
+      setNewPrompt(''); setNewAnswer(''); setNewOptions(''); setNewMediaUrl(''); setNewExplanation('');
       onRefresh();
     } catch(e) { console.error(e); }
   };
@@ -740,62 +487,31 @@ export function QuestionsTab({ questions, onRefresh, subjectId }: { questions: Q
     setEditMediaUrl(q.mediaUrl || '');
     setEditMediaType(q.mediaType || 'image');
     setEditExplanation(q.explanation || '');
-    setEditSubQuestions(q.subQuestions || []);
   };
 
   const handleSaveEdit = async () => {
-    if (!editingId) return;
-    
-    if (editType === 'question_group') {
-      if (!editPrompt || editSubQuestions.length === 0) return toast('請填寫文章內容與至少一題子問題');
-      for (const sq of editSubQuestions) {
-        if (!sq.prompt || !sq.correctAnswer) return toast('子問題必須包含題目與答案');
-        if (sq.type === 'multiple_choice' && (!sq.options || sq.options.length === 0)) return toast('選擇題子問題需有選項');
-        if (sq.type === 'multiple_choice' && !sq.options?.includes(sq.correctAnswer)) return toast('選擇題子問題正確答案必須在選項中');
-      }
-    } else {
-      if (!editPrompt || !editAnswer) return toast('請填寫題目與答案');
-    }
-
+    if (!editingId || !editPrompt || !editAnswer) return;
     const options = editOptions.split(',').map(s => s.trim()).filter(s => s);
-    if (editType === 'multiple_choice' && options.length === 0) return toast('選擇題需有選項');
-    if (editType === 'multiple_choice' && !options.includes(editAnswer)) return toast('正確答案必須在選項中');
-
     try {
-      const data: any = {
+      await updateDoc(doc(db, 'questions', editingId), {
         unit: editUnit,
         difficulty: editDiff,
         type: editType,
-        prompt: editPrompt.replace(/\[SOURCE_IMAGE\]/g, ''),
-        correctAnswer: editType === 'question_group' ? '' : editAnswer,
+        prompt: editPrompt,
+        options: editType === 'multiple_choice' ? options : null,
+        correctAnswer: editAnswer,
         mediaUrl: editMediaUrl,
         mediaType: editMediaType,
         explanation: editExplanation
-      };
-      if (editType === 'multiple_choice') data.options = options;
-      else data.options = null;
-      
-      if (editType === 'question_group') data.subQuestions = editSubQuestions.map((sq: any) => ({...sq, prompt: sq.prompt.replace(/\[SOURCE_IMAGE\]/g, '')}));
-      else data.subQuestions = null;
-      
-      await updateDoc(doc(db, 'questions', editingId), data);
+      });
       setEditingId(null);
       onRefresh();
     } catch(e) { console.error(e); }
   };
 
-  const filteredQuestions = useMemo(() => {
-    let qs = questions;
-    if (filterType !== 'all') {
-      if (filterType === 'multimedia') qs = qs.filter(q => !!q.mediaUrl);
-      else qs = qs.filter(q => q.type === filterType);
-    }
-    return [...qs].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  }, [questions, filterType]);
-
   const toggleSelectAll = () => {
-    if (selectedQuestions.length === filteredQuestions.length) setSelectedQuestions([]);
-    else setSelectedQuestions(filteredQuestions.map(q => q.id));
+    if (selectedQuestions.length === questions.length) setSelectedQuestions([]);
+    else setSelectedQuestions(questions.map(q => q.id));
   };
 
   const toggleSelectQuestion = (id: string) => {
@@ -804,7 +520,7 @@ export function QuestionsTab({ questions, onRefresh, subjectId }: { questions: Q
   };
 
   const handleDelete = async (id: string) => {
-    // confirm removed
+    if(!confirm('確定刪除？')) return;
     try {
       await deleteDoc(doc(db, 'questions', id));
       onRefresh();
@@ -813,7 +529,7 @@ export function QuestionsTab({ questions, onRefresh, subjectId }: { questions: Q
 
   const handleBulkDelete = async () => {
     if (selectedQuestions.length === 0) return;
-    // confirm removed
+    if(!confirm(`確定刪除 ${selectedQuestions.length} 題？`)) return;
     try {
       for (const id of selectedQuestions) {
         await deleteDoc(doc(db, 'questions', id));
@@ -827,16 +543,13 @@ export function QuestionsTab({ questions, onRefresh, subjectId }: { questions: Q
     <div className="space-y-6">
       <div className="flex justify-between items-center mb-4">
         <h3 className="font-serif text-xl font-bold text-[#4A3F35]">題庫管理 (共 {questions.length} 題)</h3>
-        <div className="space-x-2 flex items-center">
-          <button onClick={downloadSkillTxt} className="bg-[#EAE2D3] hover:bg-[#D5CFC4] text-[#4A3F35] px-3 py-1.5 rounded-lg text-sm font-bold transition-colors">
-            下載題庫生成 skill.txt
-          </button>
+        <div className="space-x-2">
           {selectedQuestions.length > 0 && (
-            <button onClick={handleBulkDelete} className="bg-[#B65D48] hover:bg-[#8B4534] text-white px-3 py-1.5 rounded-lg text-sm transition-colors">
+            <button onClick={handleBulkDelete} className="bg-[#B65D48] hover:bg-[#8B4534] text-white px-3 py-1 rounded-lg text-sm transition-colors">
               刪除選中 ({selectedQuestions.length})
             </button>
           )}
-          <button onClick={() => setShowAddForm(true)} className="bg-[#C2A878] hover:bg-[#B39969] text-[#4A3F35] font-bold px-4 py-1.5 rounded-lg text-sm">
+          <button onClick={() => setShowAddForm(true)} className="bg-[#C2A878] hover:bg-[#B39969] text-[#4A3F35] font-bold px-4 py-2 rounded-lg text-sm">
             新增題目
           </button>
         </div>
@@ -848,37 +561,24 @@ export function QuestionsTab({ questions, onRefresh, subjectId }: { questions: Q
           <div className="grid grid-cols-3 gap-3 mb-3">
             <div><label className="text-xs text-[#8C7A6B]">單元</label><input type="number" value={newUnit} onChange={e => setNewUnit(parseInt(e.target.value)||1)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35]" /></div>
             <div><label className="text-xs text-[#8C7A6B]">難度</label><select value={newDiff} onChange={e => setNewDiff(e.target.value as any)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35]"><option value="easy">簡單</option><option value="medium">中等</option><option value="hard">困難</option></select></div>
-            <div><label className="text-xs text-[#8C7A6B]">題型</label><select value={newType} onChange={e => setNewType(e.target.value as any)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35]"><option value="multiple_choice">選擇題</option><option value="fill_in_the_blank">填空題</option><option value="question_group">閱讀題組</option></select></div>
+            <div><label className="text-xs text-[#8C7A6B]">題型</label><select value={newType} onChange={e => setNewType(e.target.value as any)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35]"><option value="multiple_choice">選擇題</option><option value="fill_in_the_blank">填空題</option></select></div>
           </div>
           <div className="grid grid-cols-2 gap-3 mb-3">
             <div><label className="text-xs text-[#8C7A6B]">多媒體 URL (選填)</label><input value={newMediaUrl} onChange={e => setNewMediaUrl(e.target.value)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35]" placeholder="圖片或YouTube網址" /></div>
             <div><label className="text-xs text-[#8C7A6B]">多媒體類型</label><select value={newMediaType} onChange={e => setNewMediaType(e.target.value as any)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35]"><option value="image">圖片</option><option value="youtube">YouTube</option><option value="audio">音訊</option></select></div>
           </div>
-          <div><label className="text-xs text-[#8C7A6B]">{newType === 'question_group' ? '閱讀文章內容' : '題目內容'}</label>{newType === 'question_group' ? <textarea value={newPrompt} onChange={e => setNewPrompt(e.target.value)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35] mb-3" placeholder="輸入文章..." rows={4} /> : <input value={newPrompt} onChange={e => setNewPrompt(e.target.value)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35] mb-3" placeholder="輸入題目..." />}</div>
-          {newType !== 'question_group' && (
-            <>
-              <div><label className="text-xs text-[#8C7A6B]">正確答案</label><input value={newAnswer} onChange={e => setNewAnswer(e.target.value)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35] mb-3" placeholder="輸入正確答案..." /></div>
-              {newType === 'multiple_choice' && (
-                <div><label className="text-xs text-[#8C7A6B]">選項 (逗號分隔)</label><input value={newOptions} onChange={e => setNewOptions(e.target.value)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35] mb-3" placeholder="A, B, C, D" /></div>
-              )}
-            </>
+          <div><label className="text-xs text-[#8C7A6B]">題目內容</label><input value={newPrompt} onChange={e => setNewPrompt(e.target.value)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35] mb-3" placeholder="輸入題目..." /></div>
+          <div><label className="text-xs text-[#8C7A6B]">正確答案</label><input value={newAnswer} onChange={e => setNewAnswer(e.target.value)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35] mb-3" placeholder="輸入正確答案..." /></div>
+          {newType === 'multiple_choice' && (
+            <div><label className="text-xs text-[#8C7A6B]">選項 (逗號分隔)</label><input value={newOptions} onChange={e => setNewOptions(e.target.value)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35] mb-3" placeholder="A, B, C, D" /></div>
           )}
-          {newType === 'question_group' && <SubQuestionEditor subQuestions={newSubQuestions} setSubQuestions={setNewSubQuestions} />}
-          <div className="mt-3"><label className="text-xs text-[#8C7A6B]">詳解 (選填)</label><textarea value={newExplanation} onChange={e => setNewExplanation(e.target.value)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35] mb-3" placeholder="輸入詳解..." rows={2} /></div>
+          <div><label className="text-xs text-[#8C7A6B]">詳解 (選填)</label><textarea value={newExplanation} onChange={e => setNewExplanation(e.target.value)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35] mb-3" placeholder="輸入詳解..." rows={2} /></div>
           <div className="flex justify-end space-x-2 pt-2 border-t border-[#EAE6DF]">
             <button onClick={() => setShowAddForm(false)} className="text-[#8C7A6B] hover:text-[#4A3F35] px-3 py-1 font-bold">取消</button>
             <button onClick={handleAdd} className="bg-[#4A3F35] hover:bg-[#5A4F45] text-white font-bold px-4 py-2 rounded-lg">確認新增</button>
           </div>
         </div>
       )}
-
-      <div className="flex space-x-2 mb-4 overflow-x-auto pb-2">
-        <button onClick={() => setFilterType('all')} className={`px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap ${filterType === 'all' ? 'bg-[#4A3F35] text-white' : 'bg-[#EAE2D3] text-[#8C7A6B] hover:bg-[#D5CFC4]'}`}>全部</button>
-        <button onClick={() => setFilterType('multiple_choice')} className={`px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap ${filterType === 'multiple_choice' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-800 hover:bg-blue-100'}`}>選擇題</button>
-        <button onClick={() => setFilterType('fill_in_the_blank')} className={`px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap ${filterType === 'fill_in_the_blank' ? 'bg-green-600 text-white' : 'bg-green-50 text-green-800 hover:bg-green-100'}`}>填空題</button>
-        <button onClick={() => setFilterType('question_group')} className={`px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap ${filterType === 'question_group' ? 'bg-purple-600 text-white' : 'bg-purple-50 text-purple-800 hover:bg-purple-100'}`}>題組</button>
-        <button onClick={() => setFilterType('multimedia')} className={`px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap ${filterType === 'multimedia' ? 'bg-orange-600 text-white' : 'bg-orange-50 text-orange-800 hover:bg-orange-100'}`}>多媒體</button>
-      </div>
 
       {editingId && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -887,23 +587,18 @@ export function QuestionsTab({ questions, onRefresh, subjectId }: { questions: Q
             <div className="grid grid-cols-3 gap-3 mb-3">
               <div><label className="text-xs text-[#8C7A6B]">單元</label><input type="number" value={editUnit} onChange={e => setEditUnit(parseInt(e.target.value)||1)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35]" /></div>
               <div><label className="text-xs text-[#8C7A6B]">難度</label><select value={editDiff} onChange={e => setEditDiff(e.target.value as any)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35]"><option value="easy">簡單</option><option value="medium">中等</option><option value="hard">困難</option></select></div>
-              <div><label className="text-xs text-[#8C7A6B]">題型</label><select value={editType} onChange={e => setEditType(e.target.value as any)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35]"><option value="multiple_choice">選擇題</option><option value="fill_in_the_blank">填空題</option><option value="question_group">閱讀題組</option></select></div>
+              <div><label className="text-xs text-[#8C7A6B]">題型</label><select value={editType} onChange={e => setEditType(e.target.value as any)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35]"><option value="multiple_choice">選擇題</option><option value="fill_in_the_blank">填空題</option></select></div>
             </div>
             <div className="grid grid-cols-2 gap-3 mb-3">
               <div><label className="text-xs text-[#8C7A6B]">多媒體 URL</label><input value={editMediaUrl} onChange={e => setEditMediaUrl(e.target.value)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35]" /></div>
               <div><label className="text-xs text-[#8C7A6B]">多媒體類型</label><select value={editMediaType} onChange={e => setEditMediaType(e.target.value as any)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35]"><option value="image">圖片</option><option value="youtube">YouTube</option><option value="audio">音訊</option></select></div>
             </div>
-            <div className="mb-3"><label className="text-xs text-[#8C7A6B]">{editType === 'question_group' ? '閱讀文章內容' : '題目內容'}</label>{editType === 'question_group' ? <textarea value={editPrompt} onChange={e => setEditPrompt(e.target.value)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35]" rows={4} /> : <input value={editPrompt} onChange={e => setEditPrompt(e.target.value)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35]" />}</div>
-            {editType !== 'question_group' && (
-              <>
-                <div className="mb-3"><label className="text-xs text-[#8C7A6B]">正確答案</label><input value={editAnswer} onChange={e => setEditAnswer(e.target.value)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35]" /></div>
-                {editType === 'multiple_choice' && (
-                  <div className="mb-3"><label className="text-xs text-[#8C7A6B]">選項</label><input value={editOptions} onChange={e => setEditOptions(e.target.value)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35]" /></div>
-                )}
-              </>
+            <div className="mb-3"><label className="text-xs text-[#8C7A6B]">題目內容</label><input value={editPrompt} onChange={e => setEditPrompt(e.target.value)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35]" /></div>
+            <div className="mb-3"><label className="text-xs text-[#8C7A6B]">正確答案</label><input value={editAnswer} onChange={e => setEditAnswer(e.target.value)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35]" /></div>
+            {editType === 'multiple_choice' && (
+              <div className="mb-3"><label className="text-xs text-[#8C7A6B]">選項</label><input value={editOptions} onChange={e => setEditOptions(e.target.value)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35]" /></div>
             )}
-            {editType === 'question_group' && <SubQuestionEditor subQuestions={editSubQuestions} setSubQuestions={setEditSubQuestions} />}
-            <div className="mb-3 mt-3"><label className="text-xs text-[#8C7A6B]">詳解</label><textarea value={editExplanation} onChange={e => setEditExplanation(e.target.value)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35]" rows={2} /></div>
+            <div className="mb-3"><label className="text-xs text-[#8C7A6B]">詳解</label><textarea value={editExplanation} onChange={e => setEditExplanation(e.target.value)} className="w-full bg-[#FDFBF7] border border-[#D5CFC4] rounded px-3 py-2 text-[#4A3F35]" rows={2} /></div>
             <div className="flex justify-end space-x-2 pt-4 mt-4 border-t border-[#EAE6DF]">
               <button onClick={() => setEditingId(null)} className="text-[#8C7A6B] hover:text-[#4A3F35] px-4 py-2 font-bold">取消</button>
               <button onClick={handleSaveEdit} className="bg-[#4A3F35] hover:bg-[#5A4F45] text-white font-bold px-6 py-2 rounded-lg">儲存</button>
@@ -913,13 +608,13 @@ export function QuestionsTab({ questions, onRefresh, subjectId }: { questions: Q
       )}
 
       <div className="max-h-[600px] overflow-y-auto pr-2 space-y-2">
-        {filteredQuestions.length > 0 && (
+        {questions.length > 0 && (
           <div className="flex items-center px-4 py-2 bg-[#FDFBF7] rounded-lg border border-[#D5CFC4] mb-2 sticky top-0 z-10">
-            <input type="checkbox" checked={selectedQuestions.length > 0 && selectedQuestions.length === filteredQuestions.length} onChange={toggleSelectAll} className="w-4 h-4 mr-3" />
-            <span className="text-sm text-[#8C7A6B] font-bold">全選目前顯示 ({filteredQuestions.length})</span>
+            <input type="checkbox" checked={selectedQuestions.length === questions.length} onChange={toggleSelectAll} className="w-4 h-4 mr-3" />
+            <span className="text-sm text-[#8C7A6B] font-bold">全選本頁</span>
           </div>
         )}
-        {filteredQuestions.map((q, i) => (
+        {questions.map((q, i) => (
           <div key={q.id} className="bg-white border border-[#EAE6DF] rounded-xl p-4 flex items-start group shadow-sm hover:border-[#C2A878] transition-colors">
             <input 
               type="checkbox" 
@@ -932,56 +627,31 @@ export function QuestionsTab({ questions, onRefresh, subjectId }: { questions: Q
                 <div className="flex space-x-2 mb-1">
                   <span className="bg-[#EAE2D3] text-[#8C7A6B] px-2 py-0.5 rounded text-xs font-bold">U{q.unit}</span>
                   <span className="bg-[#FDFBF7] border border-[#D5CFC4] text-[#8C7A6B] px-2 py-0.5 rounded text-xs">{q.difficulty === 'easy' ? '簡單' : q.difficulty === 'medium' ? '中等' : '困難'}</span>
-                  {q.type === 'multiple_choice' && <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-xs font-bold">選擇</span>}
-                  {q.type === 'fill_in_the_blank' && <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded text-xs font-bold">填空</span>}
-                  {q.type === 'question_group' && <span className="bg-purple-100 text-purple-800 px-2 py-0.5 rounded text-xs font-bold">題組</span>}
-                  {q.mediaUrl && <span className="bg-orange-100 text-orange-800 px-2 py-0.5 rounded text-xs font-bold">多媒體</span>}
+                  <span className="bg-[#F5F5F0] text-[#8C7A6B] px-2 py-0.5 rounded text-xs">{q.type === 'fill_in_the_blank' ? '填空題' : '選擇題'}</span>
+                  {q.mediaUrl && <span className="bg-[#B39969]/20 text-[#B39969] px-2 py-0.5 rounded text-xs font-bold">多媒體</span>}
                 </div>
                 <div className="flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button onClick={() => handleEdit(q)} className="text-sm text-[#8C7A6B] hover:text-[#4A3F35] font-bold">編輯</button>
                   <button onClick={() => handleDelete(q.id)} className="text-sm text-[#B65D48] hover:text-[#8B4534] font-bold">刪除</button>
                 </div>
               </div>
-              <p className="text-[#4A3F35] font-medium text-lg leading-relaxed">{q.prompt.replace(/\[SOURCE_IMAGE\]/g, '')}</p>
+              <p className="text-[#4A3F35] font-medium text-lg leading-relaxed">{q.prompt}</p>
               {q.mediaUrl && (
                   <p className="text-xs text-[#8C7A6B] mt-1 break-all">🔗 {q.mediaUrl}</p>
               )}
-              {q.type === 'question_group' && q.subQuestions && q.subQuestions.length > 0 ? (
-                <div className="mt-3 space-y-3 pl-4 border-l-2 border-[#D5CFC4]">
-                  {q.subQuestions.map((sq, idx) => (
-                    <div key={sq.id} className="text-sm">
-                      <p className="font-bold text-[#4A3F35] mb-1">{idx + 1}. {sq.prompt}</p>
-                      {sq.options && sq.options.length > 0 ? (
-                        <div className="grid grid-cols-2 gap-1 text-[#6A5F55]">
-                          {sq.options.map((opt, oIdx) => (
-                            <span key={oIdx} className={opt === sq.correctAnswer ? 'font-bold text-[#8F9A8A]' : ''}>
-                              {String.fromCharCode(65 + oIdx)}. {opt} {opt === sq.correctAnswer && '✓'}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <div><span className="text-[#8C7A6B]">正確答案:</span> <span className="font-bold text-[#8F9A8A]">{sq.correctAnswer}</span></div>
-                      )}
-                    </div>
+              {q.options && q.options.length > 0 && (
+                <div className="mt-2 text-sm text-[#6A5F55] grid grid-cols-2 gap-1 bg-[#FDFBF7] p-2 rounded border border-[#EAE6DF]">
+                  {q.options.map((opt, idx) => (
+                    <span key={idx} className={opt === q.correctAnswer ? 'font-bold text-[#8F9A8A]' : ''}>
+                      {String.fromCharCode(65 + idx)}. {opt} {opt === q.correctAnswer && '✓'}
+                    </span>
                   ))}
                 </div>
-              ) : (
-                <>
-                  {q.options && q.options.length > 0 && (
-                    <div className="mt-2 text-sm text-[#6A5F55] grid grid-cols-2 gap-1 bg-[#FDFBF7] p-2 rounded border border-[#EAE6DF]">
-                      {q.options.map((opt, idx) => (
-                        <span key={idx} className={opt === q.correctAnswer ? 'font-bold text-[#8F9A8A]' : ''}>
-                          {String.fromCharCode(65 + idx)}. {opt} {opt === q.correctAnswer && '✓'}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {!q.options && (
-                    <div className="mt-2 text-sm">
-                      <span className="text-[#8C7A6B]">正確答案:</span> <span className="font-bold text-[#8F9A8A]">{q.correctAnswer}</span>
-                    </div>
-                  )}
-                </>
+              )}
+              {!q.options && (
+                <div className="mt-2 text-sm">
+                  <span className="text-[#8C7A6B]">正確答案:</span> <span className="font-bold text-[#8F9A8A]">{q.correctAnswer}</span>
+                </div>
               )}
               {q.explanation && (
                 <div className="mt-2 text-sm bg-[#F5F5F0] p-2 rounded text-[#6A5F55] italic">
@@ -999,12 +669,12 @@ export function QuestionsTab({ questions, onRefresh, subjectId }: { questions: Q
 export function AIGeneratorTab({ subjectId, onRefresh }: { subjectId: Subject, onRefresh: () => void }) {
   const [text, setText] = useState('');
   const [count, setCount] = useState(5);
-  const [type, setType] = useState<'multiple_choice'|'fill_in_the_blank'|'mixed'>('multiple_choice');
+  const [type, setType] = useState<'multiple_choice'|'fill_in_the_blank'>('multiple_choice');
   const [generating, setGenerating] = useState(false);
   const [generated, setGenerated] = useState<Partial<Question>[]>([]);
 
   const handleGenerate = async () => {
-    if (!text) return toast('請輸入課文');
+    if (!text) return alert('請輸入課文');
     setGenerating(true);
     try {
       const res = await fetch('/api/generate-questions', {
@@ -1016,7 +686,7 @@ export function AIGeneratorTab({ subjectId, onRefresh }: { subjectId: Subject, o
       if (data.error) throw new Error(data.error);
       setGenerated(data.questions);
     } catch(e: any) {
-      toast('產生失敗: ' + e.message);
+      alert('產生失敗: ' + e.message);
     }
     setGenerating(false);
   };
@@ -1025,15 +695,14 @@ export function AIGeneratorTab({ subjectId, onRefresh }: { subjectId: Subject, o
     for (const q of generated) {
       await addDoc(collection(db, 'questions'), {
         ...q,
-        prompt: q.prompt ? q.prompt.replace(/\[SOURCE_IMAGE\]/g, '') : '',
         subject: subjectId,
-        unit: q.unit || 1,
-        difficulty: q.difficulty || 'medium',
-        type: q.type || (type === 'mixed' ? 'multiple_choice' : type),
+        unit: 1, // Default to unit 1
+        difficulty: 'medium',
+        type,
         createdAt: Date.now()
       });
     }
-    toast('已儲存至題庫');
+    alert('已儲存至題庫');
     setGenerated([]);
     onRefresh();
   };
@@ -1046,7 +715,6 @@ export function AIGeneratorTab({ subjectId, onRefresh }: { subjectId: Subject, o
         <select value={type} onChange={e => setType(e.target.value as any)} className="bg-[#FDFBF7] border border-[#EAE6DF] rounded-lg px-4 py-2 text-[#4A3F35]">
           <option value="multiple_choice">選擇題</option>
           <option value="fill_in_the_blank">填空題</option>
-          <option value="mixed">混合題型</option>
         </select>
         <input type="number" value={count} onChange={e => setCount(parseInt(e.target.value)||5)} min="1" max="20" className="bg-[#FDFBF7] border border-[#EAE6DF] rounded-lg px-4 py-2 text-[#4A3F35] w-24" />
         <button disabled={generating} onClick={handleGenerate} className="bg-[#C2A878] hover:bg-[#B39969] text-[#4A3F35] px-6 py-2 rounded-lg font-medium shadow-sm transition-all disabled:opacity-50">
@@ -1059,7 +727,7 @@ export function AIGeneratorTab({ subjectId, onRefresh }: { subjectId: Subject, o
           <h4 className="font-medium text-[#5A4F45]">生成結果 ({generated.length} 題)</h4>
           {generated.map((q, i) => (
             <div key={i} className="p-4 bg-[#F5F5F0] rounded-xl border border-[#D5CFC4]">
-              <p className="font-medium text-[#4A3F35] mb-2">{i+1}. {q.prompt.replace(/\[SOURCE_IMAGE\]/g, '')}</p>
+              <p className="font-medium text-[#4A3F35] mb-2">{i+1}. {q.prompt}</p>
               {q.options && q.options.length > 0 && (
                 <div className="grid grid-cols-2 gap-2 mb-2">
                   {q.options.map((opt, j) => <div key={j} className="text-sm text-[#6A5F55]">{String.fromCharCode(65+j)}. {opt}</div>)}
@@ -1084,7 +752,7 @@ export function ImportTab({ subjectId, config }: { subjectId: Subject, config: S
   const parseRobustJSON = (text: string) => {
     let data = null;
     let cleanedText = text.trim();
-    cleanedText = cleanedText.replace(/^```(json)?\\n?/, '').replace(/\\n?```$/, '').trim();
+    cleanedText = cleanedText.replace(/^```(json)?\n?/, '').replace(/\n?```$/, '').trim();
 
     try {
       data = JSON.parse(cleanedText);
@@ -1174,7 +842,7 @@ export function ImportTab({ subjectId, config }: { subjectId: Subject, config: S
         unit: parseInt(String(itemUnit)) || 1,
         difficulty: itemDiff,
         type: itemType,
-        prompt: String(prompt).replace(/\[SOURCE_IMAGE\]/g, ''),
+        prompt: String(prompt),
         options: options,
         correctAnswer: String(correctAnswer),
         clue: clue,
@@ -1192,16 +860,15 @@ export function ImportTab({ subjectId, config }: { subjectId: Subject, config: S
       for (const item of previewData) {
         await addDoc(collection(db, 'questions'), {
           ...item,
-          prompt: item.prompt ? item.prompt.replace(/\[SOURCE_IMAGE\]/g, '') : '',
           subject: subjectId,
           createdAt: Date.now()
         });
       }
-      toast(`成功匯入 ${previewData.length} 題！`);
+      alert(`成功匯入 ${previewData.length} 題！`);
       setPreviewData([]);
     } catch(e) {
       console.error(e);
-      toast('匯入失敗');
+      alert('匯入失敗');
     }
     setIsImporting(false);
   };
@@ -1227,55 +894,12 @@ export function ImportTab({ subjectId, config }: { subjectId: Subject, config: S
       } else {
         throw new Error('不支援的檔案格式，請上傳 JSON 或 Excel (xlsx/xls)。');
       }
-      toast(`成功匯入 ${count} 題！`);
+      alert(`成功匯入 ${count} 題！`);
     } catch (err: any) {
-      toast('匯入失敗: ' + err.message);
+      alert('匯入失敗: ' + err.message);
     } finally {
       setIsImporting(false);
       e.target.value = '';
-    }
-  };
-
-  
-  const handleJsonDelete = async () => {
-    if (!textInput.trim()) return;
-    setIsImporting(true);
-    try {
-      const data = JSON.parse(textInput);
-      if (!Array.isArray(data)) throw new Error('內容必須是 JSON 陣列');
-      
-      const promptsToDelete = data.map((item: any) => item.prompt).filter(Boolean);
-      if (promptsToDelete.length === 0) throw new Error('找不到要刪除的題目內容');
-
-      const qSnapshot = await getDocs(query(collection(db, 'questions'), where('subject', '==', subjectId)));
-      const questionsToDelete: string[] = [];
-      qSnapshot.forEach(doc => {
-        if (promptsToDelete.includes(doc.data().prompt)) {
-          questionsToDelete.push(doc.id);
-        }
-      });
-
-      if (questionsToDelete.length === 0) {
-        toast('找不到吻合的題目');
-        setIsImporting(false);
-        return;
-      }
-
-      if (!(await confirmModal(`找到 ${questionsToDelete.length} 題吻合的題目，確定要刪除嗎？`))) {
-        setIsImporting(false);
-        return;
-      }
-
-      for (const id of questionsToDelete) {
-        await deleteDoc(doc(db, 'questions', id));
-      }
-      
-      toast(`成功刪除 ${questionsToDelete.length} 題！`);
-      setTextInput('');
-    } catch (err: any) {
-      toast('刪除失敗: ' + err.message);
-    } finally {
-      setIsImporting(false);
     }
   };
 
@@ -1285,10 +909,10 @@ export function ImportTab({ subjectId, config }: { subjectId: Subject, config: S
     try {
       const data = parseRobustJSON(textInput);
       const count = await processData(data);
-      toast(`成功匯入 ${count} 題！`);
+      alert(`成功匯入 ${count} 題！`);
       setTextInput('');
     } catch (err: any) {
-      toast('文字匯入失敗: ' + err.message);
+      alert('文字匯入失敗: ' + err.message);
     } finally {
       setIsImporting(false);
     }
@@ -1316,22 +940,13 @@ export function ImportTab({ subjectId, config }: { subjectId: Subject, config: S
           className="w-full h-32 bg-[#FDFBF7] border border-[#D5CFC4] rounded-xl p-4 text-[#4A3F35] font-mono text-sm mb-2 focus:border-purple-500 focus:outline-none" 
           placeholder="[ { &quot;prompt&quot;: &quot;題目&quot;, &quot;correctAnswer&quot;: &quot;答案&quot;, &quot;options&quot;: [&quot;A&quot;, &quot;B&quot;] } ]"
         ></textarea>
-<div className="flex space-x-2">
-          <button 
-            onClick={handleTextImport} 
-            disabled={isImporting || !textInput.trim()}
-            className="bg-[#9BA8B5] hover:bg-[#8B98A5] disabled:opacity-50 disabled:cursor-not-allowed px-6 py-2 rounded-lg text-[#4A3F35] font-bold transition-colors"
-          >
-            貼上文字匯入
-          </button>
-          <button 
-            onClick={handleJsonDelete} 
-            disabled={isImporting || !textInput.trim()}
-            className="bg-[#BC7665] hover:bg-[#AC6655] disabled:opacity-50 disabled:cursor-not-allowed px-6 py-2 rounded-lg text-white font-bold transition-colors"
-          >
-            刪除吻合的題目
-          </button>
-        </div>
+        <button 
+          onClick={handleTextImport} 
+          disabled={isImporting || !textInput.trim()}
+          className="bg-[#9BA8B5] hover:bg-[#8B98A5] disabled:opacity-50 disabled:cursor-not-allowed px-6 py-2 rounded-lg text-[#4A3F35] font-bold transition-colors"
+        >
+          貼上文字匯入
+        </button>
       </div>
 
       <div className="bg-white p-4 rounded-xl mt-4 text-sm text-[#8C7A6B]">
@@ -1374,7 +989,7 @@ export function AttemptsTab({ attempts, questions, tasks, onRefresh }: { attempt
 
   const handleDeleteAttempts = async (ids: string[]) => {
     if (ids.length === 0) return;
-    // confirm removed
+    if (!confirm(`確定要刪除 ${ids.length} 筆紀錄嗎？此動作無法復原。`)) return;
     setDeleting(true);
     try {
       for (const id of ids) {
@@ -1384,7 +999,7 @@ export function AttemptsTab({ attempts, questions, tasks, onRefresh }: { attempt
       onRefresh();
     } catch(e) {
       console.error(e);
-      toast('刪除失敗');
+      alert('刪除失敗');
     } finally {
       setDeleting(false);
     }
@@ -1451,7 +1066,7 @@ export function AttemptsTab({ attempts, questions, tasks, onRefresh }: { attempt
   });
 
   const exportWrongWords = (format: 'pdf' | 'docx') => {
-    if (wrongQuestionsList.length === 0) return toast('沒有錯題紀錄');
+    if (wrongQuestionsList.length === 0) return alert('沒有錯題紀錄');
     let html = `<div style="text-align:center; margin-bottom:20px;"><h2 style="color:#4b5563; font-size:24px;">錯題頻率彙整表</h2><p style="color:#6b7280; font-size:14px;">產出時間：${new Date().toLocaleString('zh-TW')} | 共計：${wrongQuestionsList.length} 題</p></div>`;
     
     html += `<table style="width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed;">
@@ -1561,7 +1176,7 @@ export function AttemptsTab({ attempts, questions, tasks, onRefresh }: { attempt
             {wrongQuestionsList.map((wq, idx) => (
               <div key={idx} className="bg-[#FDFBF7]/40 border border-[#D5CFC4] p-3 rounded-xl flex justify-between items-center">
                 <div className="flex-1 mr-3">
-                  <p className="text-[#4A3F35] text-sm line-clamp-2">{wq.prompt.replace(/\[SOURCE_IMAGE\]/g, '')}</p>
+                  <p className="text-[#4A3F35] text-sm line-clamp-2">{wq.prompt}</p>
                   <p className="text-[#8C7A6B] text-xs mt-1">答: {wq.answer}</p>
                 </div>
                 <span className="bg-[#BC7665]/20 text-[#BC7665] text-xs px-2 py-1 rounded whitespace-nowrap">錯 {wq.count} 次</span>
@@ -1711,11 +1326,10 @@ export function PaperTestTab({ questions, attempts, subjectId }: { questions: Qu
 
   const exportPaper = (format: 'pdf' | 'docx') => {
     const selectedQs = questions.filter(q => selectedIds.has(q.id));
-    if (selectedQs.length === 0) return toast('請先勾選題目');
+    if (selectedQs.length === 0) return alert('請先勾選題目');
 
     const mcSelected = selectedQs.filter((q: Question) => q.type === 'multiple_choice');
-    const fibSelected = selectedQs.filter((q: Question) => q.type === 'fill_in_the_blank');
-    const qgSelected = selectedQs.filter((q: Question) => q.type === 'question_group');
+    const fibSelected = selectedQs.filter((q: Question) => q.type !== 'multiple_choice');
 
     let html = `
       <div style="font-family: 'Microsoft JhengHei', sans-serif; padding: 20px; color: #000;">
@@ -1725,25 +1339,19 @@ export function PaperTestTab({ questions, attempts, subjectId }: { questions: Qu
           <span>得分：__________</span>
         </div>
     `;
-    
-    let sectionIdx = 1;
-    const getSectionTitle = () => {
-      const titles = ['一', '二', '三', '四'];
-      return titles[(sectionIdx++) - 1] || sectionIdx;
-    };
 
     if (mcSelected.length > 0) {
       html += `
-        <h2 style="font-size: 20px; margin-top: 20px; margin-bottom: 15px;">${getSectionTitle()}、選擇題（共 ${mcSelected.length} 題）</h2>
+        <h2 style="font-size: 20px; margin-top: 20px; margin-bottom: 15px;">一、選擇題（共 ${mcSelected.length} 題）</h2>
         <div style="margin-left: 10px;">
       `;
       mcSelected.forEach((q, i) => {
         html += `<div style="margin-bottom: 15px; page-break-inside: avoid;">`;
-        html += `<p style="font-size: 16px; margin: 0 0 8px 0;">${i + 1}. ( &nbsp;&nbsp; ) ${q.prompt.replace(/\[SOURCE_IMAGE\]/g, '')}</p>`;
+        html += `<p style="font-size: 16px; margin: 0 0 8px 0;">${i + 1}. ( &nbsp;&nbsp; ) ${q.prompt}</p>`;
         if (q.options && q.options.length > 0) {
           html += `<div style="display: flex; flex-wrap: wrap; gap: 15px; margin-left: 20px;">`;
-          q.options.forEach((opt) => {
-            html += `<div style="width: 45%;">${opt}</div>`;
+          q.options.forEach((opt, oi) => {
+            html += `<span style="font-size: 15px;">(${String.fromCharCode(65 + oi)}) ${opt}</span>`;
           });
           html += `</div>`;
         }
@@ -1754,47 +1362,13 @@ export function PaperTestTab({ questions, attempts, subjectId }: { questions: Qu
 
     if (fibSelected.length > 0) {
       html += `
-        <h2 style="font-size: 20px; margin-top: 30px; margin-bottom: 15px;">${getSectionTitle()}、填空與問答題（共 ${fibSelected.length} 題）</h2>
+        <h2 style="font-size: 20px; margin-top: 30px; margin-bottom: 15px;">二、填空與問答題（共 ${fibSelected.length} 題）</h2>
         <div style="margin-left: 10px;">
       `;
       fibSelected.forEach((q, i) => {
         html += `<div style="margin-bottom: 25px; page-break-inside: avoid;">`;
-        html += `<p style="font-size: 16px; margin: 0 0 10px 0;">${i + 1}. ${q.prompt.replace(/\[SOURCE_IMAGE\]/g, '')}</p>`;
+        html += `<p style="font-size: 16px; margin: 0 0 10px 0;">${i + 1}. ${q.prompt}</p>`;
         html += `<div style="border-bottom: 1px solid #000; width: 100%; height: 25px;"></div>`;
-        html += `</div>`;
-      });
-      html += `</div>`;
-    }
-
-    if (qgSelected.length > 0) {
-      html += `
-        <h2 style="font-size: 20px; margin-top: 30px; margin-bottom: 15px;">${getSectionTitle()}、閱讀題組（共 ${qgSelected.length} 篇）</h2>
-        <div style="margin-left: 10px;">
-      `;
-      qgSelected.forEach((q, i) => {
-        html += `<div style="margin-bottom: 30px;">`;
-        html += `<div style="font-size: 16px; margin: 0 0 15px 0; padding: 15px; border: 1px solid #ccc; background: #fdfdfd; line-height: 1.5; white-space: pre-wrap;">${q.prompt.replace(/\[SOURCE_IMAGE\]/g, '')}</div>`;
-        if (q.subQuestions && q.subQuestions.length > 0) {
-          html += `<div style="margin-left: 15px;">`;
-          q.subQuestions.forEach((sq, sqIdx) => {
-            html += `<div style="margin-bottom: 20px; page-break-inside: avoid;">`;
-            if (sq.type === 'multiple_choice') {
-              html += `<p style="font-size: 15px; margin: 0 0 8px 0;">${sqIdx + 1}. ( &nbsp;&nbsp; ) ${sq.prompt}</p>`;
-              if (sq.options && sq.options.length > 0) {
-                html += `<div style="display: flex; flex-wrap: wrap; gap: 15px; margin-left: 20px;">`;
-                sq.options.forEach((opt) => {
-                  html += `<div style="width: 45%;">${opt}</div>`;
-                });
-                html += `</div>`;
-              }
-            } else {
-              html += `<p style="font-size: 15px; margin: 0 0 10px 0;">${sqIdx + 1}. ${sq.prompt}</p>`;
-              html += `<div style="border-bottom: 1px solid #000; width: 100%; height: 25px;"></div>`;
-            }
-            html += `</div>`;
-          });
-          html += `</div>`;
-        }
         html += `</div>`;
       });
       html += `</div>`;
@@ -1805,9 +1379,8 @@ export function PaperTestTab({ questions, attempts, subjectId }: { questions: Qu
         <div style="page-break-before: always; margin-top: 40px;">
           <h2 style="font-size: 20px; margin-bottom: 15px; text-align: center;">解答</h2>
     `;
-    sectionIdx = 1;
     if (mcSelected.length > 0) {
-      html += `<h3 style="font-size: 16px;">${getSectionTitle()}、選擇題</h3><div style="display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px;">`;
+      html += `<h3 style="font-size: 16px;">一、選擇題</h3><div style="display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px;">`;
       mcSelected.forEach((q, i) => {
         const correctIdx = q.options ? q.options.findIndex(o => o === q.correctAnswer) : -1;
         const letter = correctIdx >= 0 ? String.fromCharCode(65 + correctIdx) : q.correctAnswer;
@@ -1816,28 +1389,9 @@ export function PaperTestTab({ questions, attempts, subjectId }: { questions: Qu
       html += `</div>`;
     }
     if (fibSelected.length > 0) {
-      html += `<h3 style="font-size: 16px;">${getSectionTitle()}、填空與問答題</h3><div style="display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px;">`;
+      html += `<h3 style="font-size: 16px;">二、填空與問答題</h3><div style="display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px;">`;
       fibSelected.forEach((q, i) => {
         html += `<span style="font-size: 14px; width: 150px;">${i + 1}. ${q.correctAnswer}</span>`;
-      });
-      html += `</div>`;
-    }
-    if (qgSelected.length > 0) {
-      html += `<h3 style="font-size: 16px;">${getSectionTitle()}、閱讀題組</h3><div style="margin-bottom: 20px;">`;
-      qgSelected.forEach((q, i) => {
-        html += `<div style="margin-bottom: 10px;"><strong>第 ${i + 1} 篇</strong><div style="display: flex; flex-wrap: wrap; gap: 15px; margin-top: 5px;">`;
-        if (q.subQuestions) {
-          q.subQuestions.forEach((sq, sqIdx) => {
-            if (sq.type === 'multiple_choice') {
-              const correctIdx = sq.options ? sq.options.findIndex(o => o === sq.correctAnswer) : -1;
-              const letter = correctIdx >= 0 ? String.fromCharCode(65 + correctIdx) : sq.correctAnswer;
-              html += `<span style="font-size: 14px; width: 60px;">${sqIdx + 1}. ${letter}</span>`;
-            } else {
-              html += `<span style="font-size: 14px; width: 150px;">${sqIdx + 1}. ${sq.correctAnswer}</span>`;
-            }
-          });
-        }
-        html += `</div></div>`;
       });
       html += `</div>`;
     }
@@ -1919,7 +1473,7 @@ export function PaperTestTab({ questions, attempts, subjectId }: { questions: Qu
                   </td>
                   <td className="p-3">{q.type === 'multiple_choice' ? '選擇' : '填空'}</td>
                   <td className="p-3">{q.difficulty}</td>
-                  <td className="p-3 truncate max-w-xs">{q.prompt.replace(/\[SOURCE_IMAGE\]/g, '')}</td>
+                  <td className="p-3 truncate max-w-xs">{q.prompt}</td>
                   <td className="p-3 text-[#72816B]">{q.correctAnswer}</td>
                 </tr>
               ))}
@@ -1944,10 +1498,10 @@ export function SettingsTab({ config, subjectId }: { config: SubjectConfig, subj
         id: subjectId,
         totalUnits: units
       });
-      toast('設定已儲存');
+      alert('設定已儲存');
     } catch (e) {
       console.error(e);
-      toast('儲存失敗');
+      alert('儲存失敗');
     }
   };
 
@@ -2096,7 +1650,7 @@ export function SignIn() {
       await signInWithPopup(auth, googleProvider);
     } catch (e) {
       console.error(e);
-      toast('登入失敗，請稍後再試。');
+      alert('登入失敗，請稍後再試。');
     }
   };
 
@@ -2107,13 +1661,13 @@ export function SignIn() {
       } catch (e: any) {
         console.error(e);
         if (e.code === 'auth/admin-restricted-operation') {
-          toast('測試登入失敗：請先至 Firebase Console 啟用「匿名登入 (Anonymous Auth)」功能。');
+          alert('測試登入失敗：請先至 Firebase Console 啟用「匿名登入 (Anonymous Auth)」功能。');
         } else {
-          toast('測試登入失敗。');
+          alert('測試登入失敗。');
         }
       }
     } else {
-      toast('無效的測試碼');
+      alert('無效的測試碼');
     }
   };
 
@@ -2542,7 +2096,7 @@ export function Gameplay({ user }: { user: UserProfile }) {
 
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.hidden && task?.antiCheat && !showResult) {
+      if (document.hidden) {
         setCheatCount(c => c + 1);
         console.warn('Tab switch detected!');
       }
@@ -2565,7 +2119,6 @@ export function Gameplay({ user }: { user: UserProfile }) {
   const [lastEffect, setLastEffect] = useState<'correct'|'wrong'|null>(null);
   const [showingWrongAnswer, setShowingWrongAnswer] = useState(false);
   const [timeLeft, setTimeLeft] = useState(10);
-  useEffect(() => { if (task?.gameMode === 'speed') setTimeLeft(task.timeLimit || 10); }, [task]);
   
   useEffect(() => {
     if (task?.gameMode === 'speed' && !showingWrongAnswer && lives > 0) {
@@ -2583,7 +2136,6 @@ export function Gameplay({ user }: { user: UserProfile }) {
   }, [task, currentIndex, showingWrongAnswer, lives]);
   
   const [inputVal, setInputVal] = useState('');
-  const [groupAnswers, setGroupAnswers] = useState<Record<string, string>>({});
   
   const [attemptAnswers, setAttemptAnswers] = useState<AttemptAnswer[]>([]);
   const [questionStartTime, setQuestionStartTime] = useState(Date.now());
@@ -2607,7 +2159,7 @@ export function Gameplay({ user }: { user: UserProfile }) {
       try {
         const taskSnap = await getDoc(doc(db, 'tasks', taskId));
         if (!taskSnap.exists()) {
-          toast('找不到任務');
+          alert('找不到任務');
           navigate('/');
           return;
         }
@@ -2630,34 +2182,13 @@ export function Gameplay({ user }: { user: UserProfile }) {
         }
         
         // Shuffle and slice
-        if (taskData.selectionMode === 'manual' && taskData.selectedQuestionIds) {
-          // Manual selection mode
-          const selectedSet = new Set(taskData.selectedQuestionIds);
-          allQs = allQs.filter(q => selectedSet.has(q.id)).sort(() => Math.random() - 0.5);
-        } else if (taskData.mcCount !== undefined || taskData.fibCount !== undefined) {
-          // Random selection mode
-          let mmQs = allQs.filter(q => !!q.mediaUrl).sort(() => Math.random() - 0.5);
-          let remainingQs = allQs.filter(q => !q.mediaUrl);
-          
-          let qgQs = remainingQs.filter(q => q.type === 'question_group').sort(() => Math.random() - 0.5);
-          remainingQs = remainingQs.filter(q => q.type !== 'question_group');
-
-          let mcQs = remainingQs.filter(q => q.type === 'multiple_choice').sort(() => Math.random() - 0.5);
-          let fibQs = remainingQs.filter(q => q.type === 'fill_in_the_blank').sort(() => Math.random() - 0.5);
-          
+        if (taskData.mcCount !== undefined || taskData.fibCount !== undefined) {
+          let mcQs = allQs.filter(q => q.type === 'multiple_choice').sort(() => Math.random() - 0.5);
+          let fibQs = allQs.filter(q => q.type === 'fill_in_the_blank').sort(() => Math.random() - 0.5);
           let targetMc = taskData.mcCount || 0;
           let targetFib = taskData.fibCount || 0;
-          let targetMm = taskData.mmCount || 0;
-          let targetQg = taskData.qgCount || 0;
-          
-          allQs = [
-            ...mmQs.slice(0, targetMm),
-            ...qgQs.slice(0, targetQg),
-            ...mcQs.slice(0, targetMc),
-            ...fibQs.slice(0, targetFib)
-          ].sort(() => Math.random() - 0.5);
+          allQs = [...mcQs.slice(0, targetMc), ...fibQs.slice(0, targetFib)].sort(() => Math.random() - 0.5);
         } else {
-          // Fallback
           allQs.sort(() => Math.random() - 0.5);
           if (allQs.length > taskData.questionCount) {
             allQs = allQs.slice(0, taskData.questionCount);
@@ -2665,7 +2196,7 @@ export function Gameplay({ user }: { user: UserProfile }) {
         }
         
         if (allQs.length === 0) {
-          toast('找不到符合條件的題目');
+          alert('找不到符合條件的題目');
           navigate(-1);
           return;
         }
@@ -2728,13 +2259,10 @@ export function Gameplay({ user }: { user: UserProfile }) {
         navigate(`/gameover/${attemptRef.id}`);
       } catch(e) {
         console.error(e);
-        toast('儲存成績失敗');
+        alert('儲存成績失敗');
       }
     } else {
       setCurrentIndex(i => i + 1);
-      if (task?.gameMode === 'speed') {
-        setTimeLeft(task.timeLimit || 10);
-      }
     }
   };
 
@@ -2754,34 +2282,15 @@ export function Gameplay({ user }: { user: UserProfile }) {
     if (showingWrongAnswer) return;
     
     // Check if the correct answer is Chinese
+    const isChinese = /[\u4E00-\u9FFF]/.test(currentQ.correctAnswer);
     let isCorrect = false;
-    let finalAnswer = answer;
-    
-    if (currentQ.type === 'question_group') {
-      isCorrect = true;
-      const parsedAns = JSON.parse(answer);
-      for (const sq of currentQ.subQuestions || []) {
-        const sqAns = parsedAns[sq.id] || '';
-        const isChinese = /[\u4E00-\u9FFF]/.test(sq.correctAnswer);
-        let sqCorrect = false;
-        if (isChinese && sq.type === 'fill_in_the_blank') {
-          const ansPinyin = pinyin(sqAns.trim(), { toneType: 'none', v: true }).replace(/\s+/g, '').toLowerCase();
-          const correctPinyin = pinyin(sq.correctAnswer.trim(), { toneType: 'none', v: true }).replace(/\s+/g, '').toLowerCase();
-          sqCorrect = (ansPinyin === correctPinyin) && sqAns.trim().length > 0;
-        } else {
-          sqCorrect = sqAns.toLowerCase().trim() === sq.correctAnswer.toLowerCase().trim();
-        }
-        if (!sqCorrect) { isCorrect = false; break; }
-      }
+
+    if (isChinese && currentQ.type === 'fill_in_the_blank') {
+        const ansPinyin = pinyin(answer.trim(), { toneType: 'none', v: true }).replace(/\s+/g, '').toLowerCase();
+        const correctPinyin = pinyin(currentQ.correctAnswer.trim(), { toneType: 'none', v: true }).replace(/\s+/g, '').toLowerCase();
+        isCorrect = (ansPinyin === correctPinyin) && answer.trim().length > 0;
     } else {
-      const isChinese = /[\u4E00-\u9FFF]/.test(currentQ.correctAnswer);
-      if (isChinese && currentQ.type === 'fill_in_the_blank') {
-          const ansPinyin = pinyin(answer.trim(), { toneType: 'none', v: true }).replace(/\s+/g, '').toLowerCase();
-          const correctPinyin = pinyin(currentQ.correctAnswer.trim(), { toneType: 'none', v: true }).replace(/\s+/g, '').toLowerCase();
-          isCorrect = (ansPinyin === correctPinyin) && answer.trim().length > 0;
-      } else {
-          isCorrect = answer.toLowerCase().trim() === currentQ.correctAnswer.toLowerCase().trim();
-      }
+        isCorrect = answer.toLowerCase().trim() === currentQ.correctAnswer.toLowerCase().trim();
     }
     
     const timeTakenForQuestion = Date.now() - questionStartTime;
@@ -2816,7 +2325,6 @@ export function Gameplay({ user }: { user: UserProfile }) {
       
       setTimeout(() => setLastEffect(null), 600);
       setInputVal('');
-      setGroupAnswers({});
       
       proceedToNext(currentScore, true, lives, wrongQuestionIds, newAnswers);
     } else {
@@ -2836,7 +2344,6 @@ export function Gameplay({ user }: { user: UserProfile }) {
       
       setTimeout(() => setLastEffect(null), 600);
       setInputVal('');
-      setGroupAnswers({});
       
       setShowingWrongAnswer(true);
       setTimeout(() => {
@@ -2862,10 +2369,10 @@ export function Gameplay({ user }: { user: UserProfile }) {
         <div className="flex items-center space-x-2">
           <div className="text-xs text-[#8C7A6B] font-mono tracking-wider mr-1">LIVES:</div>
           <div className="flex space-x-1.5 text-red-500 text-lg">
-            {task.gameMode === 'survival' && Array.from({ length: Math.max(0, lives) }).map((_, i) => (
+            {task.maxHearts !== 0 && Array.from({ length: task.maxHearts || 3 }).map((_, i) => (
               <span key={i} className={i < lives ? 'opacity-100' : 'opacity-20 grayscale'}>❤️</span>
             ))}
-            {task.gameMode !== 'survival' && <span className="text-[#B39969] font-bold text-sm">無限</span>}
+            {task.maxHearts === 0 && <span className="text-[#B39969] font-bold text-sm">無限</span>}
           </div>
         </div>
         <div className="text-right">
@@ -2901,17 +2408,15 @@ export function Gameplay({ user }: { user: UserProfile }) {
         )}
         <div className={`flex items-center justify-between border-b border-[#EAE6DF] pb-4 mb-8 ${energy >= 100 ? 'pt-6' : ''}`}>
           <span className="text-xs bg-purple-500/20 text-[#B39969] font-bold px-3 py-1 rounded-full uppercase tracking-widest font-mono">
-            {currentQ.type === 'multiple_choice' ? '選擇題' : currentQ.type === 'question_group' ? '題組' : '填空/問答'}
+            {currentQ.type === 'multiple_choice' ? '選擇題' : '填空/問答'}
           </span>
           <span className="text-xs text-[#8C7A6B] font-mono">
             QUEST <span className="text-[#B39969] font-bold">{currentIndex + 1}</span> / {questions.length}
           </span>
         </div>
         
-        {renderMedia(currentQ)}
-        
         <h3 className="font-serif text-2xl sm:text-3xl font-bold text-[#4A3F35] mb-8 leading-relaxed">
-          {currentQ.prompt.replace(/\[SOURCE_IMAGE\]/g, '')}
+          {currentQ.prompt}
         </h3>
         
         {currentQ.clue && (
@@ -2921,50 +2426,15 @@ export function Gameplay({ user }: { user: UserProfile }) {
         )}
 
         {showingWrongAnswer && (
-          <div className="bg-red-50 border border-red-500/50 p-4 rounded-xl mb-6 relative overflow-hidden text-center text-[#4A3F35]">
-             <p className="font-bold mb-2 text-red-700">正確答案：<span className="text-red-900 text-xl ml-2">{currentQ.type === 'question_group' ? '請參閱解析或重新挑戰' : currentQ.correctAnswer}</span></p>
+          <div className="bg-red-900/20 border border-red-500/50 p-4 rounded-xl mb-6 relative overflow-hidden text-center">
+             <p className="text-red-200 font-bold mb-2">正確答案：<span className="text-[#4A3F35] text-xl ml-2">{currentQ.correctAnswer}</span></p>
              <div className="w-full bg-[#BC7665]/20 h-1 absolute bottom-0 left-0">
                <div className="bg-red-500 h-1" style={{ animation: 'shrinkWidth 2s linear forwards' }}></div>
              </div>
           </div>
         )}
         
-        {currentQ.type === 'question_group' ? (
-          <div className="space-y-6 text-left">
-            {currentQ.subQuestions?.map((sq, idx) => (
-              <div key={sq.id} className="bg-white/50 p-4 rounded-xl border border-[#D5CFC4]">
-                <p className="font-bold text-[#4A3F35] mb-3">{idx + 1}. {sq.prompt.replace(/\[SOURCE_IMAGE\]/g, '')}</p>
-                {sq.type === 'multiple_choice' && sq.options ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {sq.options.map(opt => (
-                      <button 
-                        key={opt}
-                        onClick={() => setGroupAnswers({...groupAnswers, [sq.id]: opt})}
-                        className={`font-bold py-2 px-4 rounded-xl transition-all shadow-sm border ${groupAnswers[sq.id] === opt ? 'bg-[#C2A878] text-[#4A3F35] border-[#C2A878]' : 'bg-white hover:bg-[#F5F5F0] text-[#4A3F35] border-[#EAE6DF]'}`}
-                      >
-                        {opt}
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <input 
-                    type="text" 
-                    value={groupAnswers[sq.id] || ''}
-                    onChange={e => setGroupAnswers({...groupAnswers, [sq.id]: e.target.value})}
-                    placeholder="輸入答案"
-                    className="w-full bg-[#F5F5F0] border border-[#D5CFC4] rounded-xl px-4 py-2 text-[#4A3F35] focus:outline-none focus:border-[#C2A878]"
-                  />
-                )}
-              </div>
-            ))}
-            <button 
-              onClick={() => handleAnswer(JSON.stringify(groupAnswers))}
-              className="w-full py-4 px-6 bg-[#4A3F35] hover:bg-[#5A4F45] text-white font-extrabold rounded-2xl shadow-md transition-all mt-4"
-            >
-              送出題組答案
-            </button>
-          </div>
-        ) : currentQ.type === 'multiple_choice' && currentQ.options ? (
+        {currentQ.type === 'multiple_choice' && currentQ.options ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {currentQ.options.map((opt, idx) => (
               <button 
@@ -2988,7 +2458,7 @@ export function Gameplay({ user }: { user: UserProfile }) {
             />
             <button 
               onClick={() => inputVal && handleAnswer(inputVal)}
-              className="w-full py-4 px-6 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 text-white font-extrabold rounded-2xl shadow-md transition-all"
+              className="w-full py-4 px-6 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 text-[#4A3F35] font-extrabold rounded-2xl shadow-md transition-all"
             >
               送出答案
             </button>
@@ -3028,11 +2498,6 @@ export function GameOver() {
         <h2 className="font-serif text-3xl font-black tracking-wider text-[#4A3F35]">任務完成！</h2>
         <p className="text-[#8C7A6B] mt-2 text-sm">成績已紀錄至指揮中心。</p>
         
-        {attempt.cheatCount ? (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-6 text-red-600 font-bold text-sm">
-            ⚠️ 系統偵測到離開畫面次數：{attempt.cheatCount} 次
-          </div>
-        ) : null}
         <div className="grid grid-cols-3 gap-4 my-8">
           <div className="bg-[#F5F5F0]/60 border border-[#EAE6DF] rounded-2xl p-4">
             <p className="text-xs text-[#8C7A6B] font-mono">最終分數</p>

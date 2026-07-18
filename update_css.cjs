@@ -1,0 +1,17 @@
+const fs = require('fs');
+
+let css = `@import url('https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700;800&family=Nunito:wght@400;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Nunito", "M PLUS Rounded 1c", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "M PLUS Rounded 1c", "Nunito", ui-serif, Georgia, serif;
+}
+
+body {
+  background-color: #FDFBF7;
+  color: #4A3F35;
+}
+`;
+fs.writeFileSync('src/index.css', css);
+console.log('CSS updated');
