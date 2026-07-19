@@ -2617,7 +2617,7 @@ export function Gameplay({ user }: { user: UserProfile }) {
       const timer = setInterval(() => {
         setTimeLeft(t => {
           if (t <= 1) {
-            handleAnswer(''); // Auto-submit empty if time runs out
+            if (handleAnswerRef.current) handleAnswerRef.current(''); // Auto-submit empty if time runs out
             return 10;
           }
           return t - 1;
@@ -2632,6 +2632,7 @@ export function Gameplay({ user }: { user: UserProfile }) {
   
   const [attemptAnswers, setAttemptAnswers] = useState<AttemptAnswer[]>([]);
   const [questionStartTime, setQuestionStartTime] = useState(Date.now());
+  const handleAnswerRef = useRef<any>(null);
   
   useEffect(() => {
     setQuestionStartTime(Date.now());
@@ -2797,7 +2798,6 @@ export function Gameplay({ user }: { user: UserProfile }) {
 
   const handleAnswer = async (answer: string) => {
     if (showingWrongAnswer) return;
-    
     // Check if the correct answer is Chinese
     let isCorrect = false;
     let finalAnswer = answer;
@@ -2894,6 +2894,7 @@ export function Gameplay({ user }: { user: UserProfile }) {
   if (loading || !task) return <div className="text-center text-[#A69B8F] py-10">載入任務中...</div>;
 
   const currentQ = questions[currentIndex];
+  handleAnswerRef.current = handleAnswer;
   if (!currentQ) return <div className="text-center text-[#A69B8F] py-10">結束中...</div>;
 
   return (
@@ -2912,6 +2913,12 @@ export function Gameplay({ user }: { user: UserProfile }) {
             ))}
             {task.gameMode !== 'survival' && <span className="text-[#B39969] font-bold text-sm">無限</span>}
           </div>
+          {task.gameMode === 'speed' && (
+            <div className="ml-4 flex items-center space-x-2">
+               <div className="text-xs text-red-500 font-mono tracking-wider">TIME:</div>
+               <div className="text-xl font-black text-red-500">{timeLeft}s</div>
+            </div>
+          )}
         </div>
         <div className="text-right">
           <p className="text-xs text-[#8C7A6B] font-mono tracking-wider uppercase">Score</p>
