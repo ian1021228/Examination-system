@@ -114,20 +114,7 @@ export interface SubjectConfig {
   totalUnits: number;
 }
 
-const firebaseConfig = {
-  apiKey: "AIzaSyCMwOOb0ib_gl5A2cgqw9Lqfrw8D_zJoQM",
-  authDomain: "ket-training-9b88d.firebaseapp.com",
-  projectId: "ket-training-9b88d",
-  storageBucket: "ket-training-9b88d.firebasestorage.app",
-  messagingSenderId: "1048640604545",
-  appId: "1:1048640604545:web:97763f7dec221ca9eac080"
-};
-
-export const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const storage = getStorage(app);
-export const googleProvider = new GoogleAuthProvider();
+import { app, auth, db, storage, googleProvider } from './firebase';
 
 
 
@@ -2823,10 +2810,10 @@ export function Gameplay({ user }: { user: UserProfile }) {
         let sqCorrect = false;
         if (isChinese && sq.type === 'fill_in_the_blank') {
           const ansPinyin = pinyin(sqAns.trim(), { toneType: 'none', v: true }).replace(/\s+/g, '').toLowerCase();
-          const correctPinyin = pinyin(sq.correctAnswer.trim(), { toneType: 'none', v: true }).replace(/\s+/g, '').toLowerCase();
+          const correctPinyin = pinyin((sq.correctAnswer || '').trim(), { toneType: 'none', v: true }).replace(/\s+/g, '').toLowerCase();
           sqCorrect = (ansPinyin === correctPinyin) && sqAns.trim().length > 0;
         } else {
-          sqCorrect = sqAns.toLowerCase().trim() === sq.correctAnswer.toLowerCase().trim();
+          sqCorrect = sqAns.toLowerCase().trim() === (sq.correctAnswer || '').toLowerCase().trim();
         }
         if (!sqCorrect) { isCorrect = false; break; }
       }
@@ -2834,10 +2821,10 @@ export function Gameplay({ user }: { user: UserProfile }) {
       const isChinese = /[\u4E00-\u9FFF]/.test(currentQ.correctAnswer);
       if (isChinese && currentQ.type === 'fill_in_the_blank') {
           const ansPinyin = pinyin(answer.trim(), { toneType: 'none', v: true }).replace(/\s+/g, '').toLowerCase();
-          const correctPinyin = pinyin(currentQ.correctAnswer.trim(), { toneType: 'none', v: true }).replace(/\s+/g, '').toLowerCase();
+          const correctPinyin = pinyin((currentQ.correctAnswer || '').trim(), { toneType: 'none', v: true }).replace(/\s+/g, '').toLowerCase();
           isCorrect = (ansPinyin === correctPinyin) && answer.trim().length > 0;
       } else {
-          isCorrect = answer.toLowerCase().trim() === currentQ.correctAnswer.toLowerCase().trim();
+          isCorrect = answer.toLowerCase().trim() === (currentQ.correctAnswer || '').toLowerCase().trim();
       }
     }
     

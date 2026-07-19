@@ -1,13 +1,14 @@
 import { createPortal } from 'react-dom';
 import React, { useState, useEffect } from 'react';
 import { collection, query, where, getDocs, addDoc, deleteDoc, doc, updateDoc, orderBy, limit, onSnapshot } from 'firebase/firestore';
-import { db, auth, storage } from './App';
+import { db, auth, storage } from './firebase';
 import { ref, uploadBytes, getDownloadURL, uploadBytesResumable, UploadTask } from 'firebase/storage';
 import Markdown from 'react-markdown';
 import type { UserProfile, Subject } from './App';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { ChevronLeft, BookOpen, Video, FileText, MessageCircle, Send, Award, Trash, Star, Play, CheckCircle, ChevronRight, Layout, Info, User, Volume2, Calendar, Paperclip, Download, Plus, X, Upload } from 'lucide-react';
 import { toast } from './toast';
+import { googleSignIn, getAccessToken } from './auth';
 import { confirmModal } from './confirm';
 
 export interface Announcement {
@@ -209,6 +210,48 @@ export function CourseMaterialsAdminTab({ subjectId }: { subjectId: string }) {
   const [newMat, setNewMat] = useState<Partial<CourseMaterial>>({ type: 'lesson', unit: 1, title: '', contentUrl: '', description: '', markdownNotes: '', attachments: [] });
   const [filterUnit, setFilterUnit] = useState<number | 'all'>('all');
 
+  const handleDrivePicker = async () => {
+    let token = await getAccessToken();
+    if (!token) {
+      try {
+        const result = await googleSignIn();
+        token = result?.accessToken || null;
+      } catch (e) {
+        toast('Google登入失敗或已取消');
+        return;
+      }
+    }
+
+    if (!token) return;
+
+    (window as any).gapi.load('picker', () => {
+      const pickerOrigin = window.location.ancestorOrigins && window.location.ancestorOrigins.length > 0 
+        ? window.location.ancestorOrigins[window.location.ancestorOrigins.length - 1] 
+        : window.location.origin;
+        
+      const picker = new (window as any).google.picker.PickerBuilder()
+        .addView((window as any).google.picker.ViewId.DOCS)
+        .setOAuthToken(token)
+        .setCallback((data: any) => {
+          if (data.action === (window as any).google.picker.Action.PICKED) {
+            const files = data.docs;
+            const newAttachments = files.map((f: any) => ({
+              name: f.name,
+              url: f.url
+            }));
+            setNewMat(prev => ({
+              ...prev,
+              attachments: [...(prev.attachments || []), ...newAttachments]
+            }));
+            toast(`已加入 ${files.length} 個雲端檔案`);
+          }
+        })
+        .setOrigin(pickerOrigin)
+        .build();
+      picker.setVisible(true);
+    });
+  };
+
 
   const fetchMats = async () => {
     const q = query(collection(db, 'materials'), where('subjectId', '==', subjectId));
@@ -352,7 +395,12 @@ export function CourseMaterialsAdminTab({ subjectId }: { subjectId: string }) {
                   <label className="text-sm font-bold text-[#4A3F35] flex items-center gap-2">
                     <Paperclip size={16} /> 附加外部檔案連結 ({newMat.attachments?.length || 0})
                   </label>
-                  <p className="text-xs text-[#8C7A6B]">由於未使用付費方案，請將檔案上傳至 Google Drive 等空間，再將連結貼至此處。</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-[#8C7A6B]">可手動新增外部連結，或直接從 Google 雲端硬碟選取。</p>
+                    <button type="button" onClick={handleDrivePicker} className="bg-blue-50 text-blue-600 hover:bg-blue-100 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 border border-blue-200">
+                      從雲端硬碟選取
+                    </button>
+                  </div>
                   
                   <div className="flex flex-col sm:flex-row gap-2 mt-2">
                     <input 
