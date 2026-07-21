@@ -12,7 +12,7 @@ import { pinyin } from 'pinyin-pro';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 import html2pdf from 'html2pdf.js';
 import { ParticleEngine } from './ParticleEngine';
-import { LandingPage, AnnouncementsAdminTab, CourseMaterialsAdminTab, DiscussionBoard, CourseMaterialsStudentView, GamificationProfile, Leaderboard, XPShop } from './features';
+import { LandingPage, AnnouncementsAdminTab, CourseMaterialsAdminTab, DiscussionBoard, CourseMaterialsStudentView, GamificationProfile, Leaderboard, XPShop, StudyTimer, LearningAnalyticsDashboard } from './features';
 
 
 
@@ -2564,7 +2564,7 @@ export function TaskSelect({ user }: { user: UserProfile }) {
   const navigate = useNavigate();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'tasks'|'mistakes'|'leaderboard'|'materials'>('tasks');
+  const [activeTab, setActiveTab] = useState<'tasks'|'mistakes'|'leaderboard'|'materials'|'timer'|'analytics'>('tasks');
 
   useEffect(() => {
     if (!subjectId) return;
@@ -2591,17 +2591,23 @@ export function TaskSelect({ user }: { user: UserProfile }) {
     <div className="max-w-[96%] w-full mx-auto py-10 space-y-8">
       <GamificationProfile user={user} />
       
-      <div className="flex bg-[#FDFBF7] p-1 rounded-xl w-full max-w-lg border border-[#EAE6DF]">
-        <button onClick={() => setActiveTab('materials')} className={`flex-1 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'materials' ? 'bg-[#C2A878] text-[#4A3F35] shadow-sm' : 'text-[#8C7A6B] hover:bg-[#F5F5F0]'}`}>
+      <div className="flex flex-wrap gap-1 bg-[#FDFBF7] p-1.5 rounded-2xl w-full max-w-3xl border border-[#EAE6DF]">
+        <button onClick={() => setActiveTab('materials')} className={`flex-1 min-w-[110px] px-4 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === 'materials' ? 'bg-[#C2A878] text-[#4A3F35] shadow-sm' : 'text-[#8C7A6B] hover:bg-[#F5F5F0]'}`}>
           先看課 / 教材區
         </button>
-        <button onClick={() => setActiveTab('tasks')} className={`flex-1 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'tasks' ? 'bg-[#C2A878] text-[#4A3F35] shadow-sm' : 'text-[#8C7A6B] hover:bg-[#F5F5F0]'}`}>
+        <button onClick={() => setActiveTab('tasks')} className={`flex-1 min-w-[110px] px-4 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === 'tasks' ? 'bg-[#C2A878] text-[#4A3F35] shadow-sm' : 'text-[#8C7A6B] hover:bg-[#F5F5F0]'}`}>
           測驗任務
         </button>
-        <button onClick={() => setActiveTab('mistakes')} className={`flex-1 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'mistakes' ? 'bg-[#C2A878] text-[#4A3F35] shadow-sm' : 'text-[#8C7A6B] hover:bg-[#F5F5F0]'}`}>
+        <button onClick={() => setActiveTab('mistakes')} className={`flex-1 min-w-[110px] px-4 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === 'mistakes' ? 'bg-[#C2A878] text-[#4A3F35] shadow-sm' : 'text-[#8C7A6B] hover:bg-[#F5F5F0]'}`}>
           錯題複習
         </button>
-        <button onClick={() => setActiveTab('leaderboard')} className={`flex-1 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'leaderboard' ? 'bg-[#C2A878] text-[#4A3F35] shadow-sm' : 'text-[#8C7A6B] hover:bg-[#F5F5F0]'}`}>
+        <button onClick={() => setActiveTab('timer')} className={`flex-1 min-w-[110px] px-4 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === 'timer' ? 'bg-[#C2A878] text-[#4A3F35] shadow-sm' : 'text-[#8C7A6B] hover:bg-[#F5F5F0]'}`}>
+          ⏱️ 專注番茄鐘
+        </button>
+        <button onClick={() => setActiveTab('analytics')} className={`flex-1 min-w-[110px] px-4 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === 'analytics' ? 'bg-[#C2A878] text-[#4A3F35] shadow-sm' : 'text-[#8C7A6B] hover:bg-[#F5F5F0]'}`}>
+          📊 學習統計
+        </button>
+        <button onClick={() => setActiveTab('leaderboard')} className={`flex-1 min-w-[110px] px-4 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === 'leaderboard' ? 'bg-[#C2A878] text-[#4A3F35] shadow-sm' : 'text-[#8C7A6B] hover:bg-[#F5F5F0]'}`}>
           排行榜
         </button>
       </div>
@@ -2683,6 +2689,8 @@ export function TaskSelect({ user }: { user: UserProfile }) {
       )}
 
       {activeTab === 'mistakes' && <MistakesTab user={user} />}
+      {activeTab === 'timer' && <StudyTimer />}
+      {activeTab === 'analytics' && <LearningAnalyticsDashboard subjectId={subjectId!} user={user} />}
       {activeTab === 'leaderboard' && <LeaderboardTab user={user} />}
     </div>
   );

@@ -1,12 +1,13 @@
 import { createPortal } from 'react-dom';
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, query, where, getDocs, addDoc, deleteDoc, doc, updateDoc, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, deleteDoc, doc, updateDoc, orderBy, limit, onSnapshot, setDoc, increment } from 'firebase/firestore';
 import { db, auth, storage } from './firebase';
 import { ref, uploadBytes, getDownloadURL, uploadBytesResumable, UploadTask } from 'firebase/storage';
 import Markdown from 'react-markdown';
 import type { UserProfile, Subject } from './App';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { ChevronLeft, BookOpen, Video, FileText, MessageCircle, Send, Award, Trash, Star, Play, CheckCircle, ChevronRight, Layout, Info, User, Volume2, VolumeX, Calendar, Paperclip, Download, Plus, X, Upload, ShoppingCart, Trophy, Lock, Unlock , Edit2, GripVertical} from 'lucide-react';
+import { ChevronLeft, BookOpen, Video, FileText, MessageCircle, Send, Award, Trash, Star, Play, CheckCircle, ChevronRight, Layout, Info, User, Volume2, VolumeX, Calendar, Paperclip, Download, Plus, X, Upload, ShoppingCart, Trophy, Lock, Unlock , Edit2, GripVertical, Timer, Pause, RotateCcw, TrendingUp, Clock, Percent, Activity} from 'lucide-react';
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, LineChart, Line, PieChart, Pie, Cell, Legend } from 'recharts';
 import { toast } from './toast';
 import { googleSignIn, getAccessToken } from './auth';
 import { confirmModal } from './confirm';
@@ -342,13 +343,19 @@ export function CourseMaterialsAdminTab({ subjectId }: { subjectId: string }) {
           const snap = await getDocs(q);
           setProgressRecords(snap.docs.map(d => d.data() as MaterialProgress));
           
-          const qUsers = query(collection(db, 'users'));
+          const qUsers = query(collection(db, 'users'), where('role', '==', 'player'));
           const snapUsers = await getDocs(qUsers);
-          const usersList = snapUsers.docs.map(d => d.data() as UserProfile);
+          const usersList = snapUsers.docs
+            .map(d => d.data() as UserProfile)
+            .filter(u => u.role === 'player' && u.displayName !== '測試管理員');
           setStudents(usersList);
           
-          if (usersList.length > 0 && !activeStudentId) {
-            setActiveStudentId(usersList[0].uid);
+          if (usersList.length > 0) {
+            if (!activeStudentId || !usersList.some(u => u.uid === activeStudentId)) {
+              setActiveStudentId(usersList[0].uid);
+            }
+          } else {
+            setActiveStudentId(null);
           }
         } catch (error) {
           console.error("Fetch progress error: ", error);
@@ -912,6 +919,16 @@ export function CourseMaterialsAdminTab({ subjectId }: { subjectId: string }) {
   );
 }
 
+export interface DiscussionPost {
+  id?: string;
+  subjectId: string;
+  authorId: string;
+  authorName: string;
+  content: string;
+  createdAt: number;
+  replies?: any[];
+}
+
 export function DiscussionBoard({ subjectId, user }: { subjectId: string, user: UserProfile }) {
   const [posts, setPosts] = useState<DiscussionPost[]>([]);
   const [newPost, setNewPost] = useState('');
@@ -979,6 +996,211 @@ export function CourseMaterialsStudentView({ subjectId, user }: { subjectId: str
   const markdownRef = useRef<HTMLDivElement>(null);
   const fullscreenMarkdownRef = useRef<HTMLDivElement>(null);
 
+  const [selectedText, setSelectedText] = useState('');
+  const [selectionPosition, setSelectionPosition] = useState<{ x: number; y: number } | null>(null);
+  const [clickedHighlight, setClickedHighlight] = useState<{ index: number; text: string; color: string; x: number; y: number } | null>(null);
+
+  const handleSelectionDetect = (e: MouseEvent | TouchEvent) => {
+    const selection = window.getSelection();
+    if (!selection) return;
+    const text = selection.toString().trim();
+
+    const target = e.target as HTMLElement;
+    if (target.closest('.highlighter-toolbar') || target.closest('.highlight-menu') || target.closest('mark.custom-highlight')) return;
+
+    const isInsideNormal = markdownRef.current?.contains(selection.anchorNode);
+    const isInsideFullscreen = fullscreenMarkdownRef.current?.contains(selection.anchorNode);
+
+    if (text.length > 0 && (isInsideNormal || isInsideFullscreen)) {
+      try {
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        setSelectedText(text);
+        setSelectionPosition({
+          x: rect.left + rect.width / 2 + window.scrollX,
+          y: rect.top - 55 + window.scrollY
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    } else {
+      setSelectedText('');
+      setSelectionPosition(null);
+    }
+  };
+
+  useEffect(() => {
+    document.addEventListener('mouseup', handleSelectionDetect);
+    document.addEventListener('touchend', handleSelectionDetect);
+    return () => {
+      document.removeEventListener('mouseup', handleSelectionDetect);
+      document.removeEventListener('touchend', handleSelectionDetect);
+    };
+  }, [activeMat?.id, progressData]);
+
+  useEffect(() => {
+    const handleDocClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const mark = target.closest('mark.custom-highlight');
+      if (mark) {
+        const hIdxStr = mark.getAttribute('data-h-idx');
+        if (hIdxStr !== null) {
+          const index = parseInt(hIdxStr, 10);
+          const highlights = progressData[activeMat?.id!]?.highlights || [];
+          const h = highlights[index];
+          if (h) {
+            const rect = mark.getBoundingClientRect();
+            setClickedHighlight({
+              index,
+              text: h.text,
+              color: h.color,
+              x: rect.left + rect.width / 2 + window.scrollX,
+              y: rect.top - 55 + window.scrollY
+            });
+            setSelectedText('');
+            setSelectionPosition(null);
+            return;
+          }
+        }
+      }
+      
+      if (!target.closest('.highlight-menu')) {
+        setClickedHighlight(null);
+      }
+    };
+    
+    document.addEventListener('click', handleDocClick);
+    return () => {
+      document.removeEventListener('click', handleDocClick);
+    };
+  }, [activeMat?.id, progressData]);
+
+  const addHighlight = async (color: string) => {
+    if (!activeMat?.id) return;
+    const currentHighlights = progressData[activeMat.id]?.highlights || [];
+    const newHighlight = {
+      text: selectedText,
+      color,
+      createdAt: Date.now()
+    };
+    const updated = [...currentHighlights, newHighlight];
+    await saveProgress(activeMat.id, { highlights: updated });
+    toast(`💡 已劃線標記！`);
+    
+    window.getSelection()?.removeAllRanges();
+    setSelectedText('');
+    setSelectionPosition(null);
+  };
+
+  const updateHighlightColor = async (idx: number, newColor: string) => {
+    if (!activeMat?.id) return;
+    const currentHighlights = progressData[activeMat.id]?.highlights || [];
+    const updated = [...currentHighlights];
+    if (updated[idx]) {
+      updated[idx] = { ...updated[idx], color: newColor };
+      await saveProgress(activeMat.id, { highlights: updated }, true);
+      toast("🎨 已更換重點標記顏色！");
+    }
+    setClickedHighlight(null);
+  };
+
+  const appendSelectedToNotes = async () => {
+    if (!activeMat?.id) return;
+    const separator = notesText.trim() ? '\n\n' : '';
+    const addedText = `> ${selectedText}`;
+    const newNotes = notesText + separator + addedText;
+    setNotesText(newNotes);
+    await saveProgress(activeMat.id, { notes: newNotes });
+    toast(`📝 已成功將此段文字匯入個人筆記！`);
+    
+    window.getSelection()?.removeAllRanges();
+    setSelectedText('');
+    setSelectionPosition(null);
+  };
+
+  const applyHighlightsToDOM = () => {
+    const container = isFullscreen ? fullscreenMarkdownRef.current : markdownRef.current;
+    if (!container) return;
+    
+    const existingMarks = container.querySelectorAll('mark.custom-highlight');
+    existingMarks.forEach(mark => {
+      const parent = mark.parentNode;
+      if (parent) {
+        parent.replaceChild(document.createTextNode(mark.textContent || ''), mark);
+        parent.normalize();
+      }
+    });
+
+    const currentHighlights = progressData[activeMat?.id!]?.highlights || [];
+    if (currentHighlights.length === 0) return;
+
+    const highlightTextNode = (node: Node, highlightText: string, color: string, hIdx: number) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.nodeValue || '';
+        const index = text.toLowerCase().indexOf(highlightText.toLowerCase());
+        if (index >= 0) {
+          const matchedText = text.substring(index, index + highlightText.length);
+          const before = text.substring(0, index);
+          const after = text.substring(index + highlightText.length);
+
+          const mark = document.createElement('mark');
+          mark.className = `custom-highlight highlight-${color} px-1 rounded cursor-pointer transition-all hover:opacity-80`;
+          mark.setAttribute('data-h-idx', String(hIdx));
+          
+          if (color === 'yellow') mark.style.backgroundColor = '#fef08a';
+          else if (color === 'green') mark.style.backgroundColor = '#bbf7d0';
+          else if (color === 'blue') mark.style.backgroundColor = '#bfdbfe';
+          else if (color === 'pink') mark.style.backgroundColor = '#fbcfe8';
+          
+          mark.style.color = '#1f2937';
+          mark.textContent = matchedText;
+
+          const parent = node.parentNode;
+          if (parent) {
+            const beforeNode = document.createTextNode(before);
+            const afterNode = document.createTextNode(after);
+
+            parent.insertBefore(beforeNode, node);
+            parent.insertBefore(mark, node);
+            parent.insertBefore(afterNode, node);
+            parent.removeChild(node);
+
+            highlightTextNode(afterNode, highlightText, color, hIdx);
+          }
+        }
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        const element = node as HTMLElement;
+        if (element.tagName !== 'SCRIPT' && element.tagName !== 'STYLE' && !element.classList.contains('custom-highlight')) {
+          const children = Array.from(node.childNodes);
+          children.forEach(child => highlightTextNode(child, highlightText, color, hIdx));
+        }
+      }
+    };
+
+    currentHighlights.forEach((h, hIdx) => {
+      if (h.text && h.text.trim()) {
+        highlightTextNode(container, h.text, h.color, hIdx);
+      }
+    });
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      applyHighlightsToDOM();
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [activeMat?.id, progressData, fontSize, isFullscreen]);
+
+  const handleDeleteHighlight = async (idx: number) => {
+    if (!activeMat?.id) return;
+    const currentHighlights = progressData[activeMat.id]?.highlights || [];
+    const updated = [...currentHighlights];
+    updated.splice(idx, 1);
+    await saveProgress(activeMat.id, { highlights: updated }, true);
+    toast("🗑️ 已成功刪除該重點標記！");
+    setClickedHighlight(null);
+  };
+
 
 
   // 1. 監聽教材進度 (監聽符合 userId 與 subjectId 的 material_progress)
@@ -1023,9 +1245,9 @@ export function CourseMaterialsStudentView({ subjectId, user }: { subjectId: str
   }, [subjectId]);
 
   // 儲存進度、筆記與完成狀態的核心方法
-  const saveProgress = async (matId: string, data: Partial<MaterialProgress>, silent = false) => {
+  const saveProgress = async (matId: string, data: Partial<MaterialProgress> & { timeSpentIncrement?: number }, silent = false) => {
     if (!user?.uid || !subjectId) return;
-    const existing = progressData[matId];
+    const existing = latestProgressDataRef.current[matId];
     
     // 檢查筆記長度以觸發隱藏成就 "notes_expert"
     if (data.notes && data.notes.length > 10000 && !(user.badges || []).includes('notes_expert')) {
@@ -1036,25 +1258,27 @@ export function CourseMaterialsStudentView({ subjectId, user }: { subjectId: str
 
     try {
       const isFirstTimeComplete = !existing?.completed && data.completed;
+      const docId = `${user.uid}_${matId}`;
+      const docRef = doc(db, 'material_progress', docId);
 
-      if (existing?.id) {
-        await updateDoc(doc(db, 'material_progress', existing.id), {
-          ...data,
-          lastUpdated: Date.now()
-        });
-      } else {
-        await addDoc(collection(db, 'material_progress'), {
-          userId: user.uid,
-          materialId: matId,
-          subjectId: subjectId,
-          completed: false,
-          timeSpent: 0,
-          notes: '',
-          highlights: [],
-          ...data,
-          lastUpdated: Date.now()
-        });
+      const updateData: any = {
+        userId: user.uid,
+        materialId: matId,
+        subjectId: subjectId,
+        lastUpdated: Date.now()
+      };
+
+      if (data.completed !== undefined) updateData.completed = data.completed;
+      if (data.notes !== undefined) updateData.notes = data.notes;
+      if (data.highlights !== undefined) updateData.highlights = data.highlights;
+      
+      if (data.timeSpentIncrement !== undefined) {
+        updateData.timeSpent = increment(data.timeSpentIncrement);
+      } else if (data.timeSpent !== undefined) {
+        updateData.timeSpent = data.timeSpent;
       }
+
+      await setDoc(docRef, updateData, { merge: true });
 
       if (isFirstTimeComplete) {
         // 完成教材贈送 50 XP！
@@ -1064,7 +1288,7 @@ export function CourseMaterialsStudentView({ subjectId, user }: { subjectId: str
         if (!silent) toast("🎉 恭喜完成教材！獲得 50 XP 獎勵！");
       } else if (data.notes !== undefined) {
         if (!silent) toast("📝 筆記儲存成功！");
-      } else {
+      } else if (data.timeSpentIncrement === undefined && data.timeSpent === undefined) {
         if (!silent) toast("✅ 狀態更新成功！");
       }
     } catch (e) {
@@ -1094,15 +1318,11 @@ export function CourseMaterialsStudentView({ subjectId, user }: { subjectId: str
       const secondsToSave = timeRef.current;
       if (!currentMatId || secondsToSave <= 0) return;
 
-      const existingProg = latestProgressDataRef.current[currentMatId];
-      const previousTimeSpent = existingProg?.timeSpent || 0;
-      const newTotal = previousTimeSpent + secondsToSave;
-
       // 重置當前計時
       timeRef.current = 0;
 
-      // 靜默儲存
-      await saveProgress(currentMatId, { timeSpent: newTotal }, true);
+      // 靜默儲存，使用 increment
+      await saveProgress(currentMatId, { timeSpentIncrement: secondsToSave }, true);
     };
 
     const interval = setInterval(() => {
@@ -1273,6 +1493,40 @@ export function CourseMaterialsStudentView({ subjectId, user }: { subjectId: str
               className="w-full h-48 p-5 border border-gray-200 rounded-3xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50/50 text-gray-800 placeholder-gray-400 transition-all text-base leading-relaxed shadow-inner"
               placeholder="在此記錄您的個人學習重點、筆記、或是遇到的問題... 點擊儲存筆記即可永久儲存至您的個人帳戶中！"
             />
+
+            {/* 全螢幕下的個人劃線重點庫 */}
+            {progressData[activeMat.id!]?.highlights && progressData[activeMat.id!]?.highlights!.length > 0 && (
+              <div className="mt-8 space-y-4">
+                <h4 className="text-base font-bold text-gray-800 flex items-center gap-2">
+                  <span>💡 全螢幕劃線重點庫 ({progressData[activeMat.id!]?.highlights!.length})</span>
+                </h4>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {progressData[activeMat.id!]?.highlights!.map((h, hIdx) => (
+                    <div 
+                      key={hIdx} 
+                      className={`p-4 rounded-3xl border relative text-sm leading-relaxed transition-all ${
+                        h.color === 'yellow' ? 'bg-yellow-50/70 border-yellow-200 text-yellow-900' :
+                        h.color === 'green' ? 'bg-green-50/70 border-green-200 text-green-900' :
+                        h.color === 'blue' ? 'bg-blue-50/70 border-blue-200 text-blue-900' :
+                        'bg-pink-50/70 border-pink-200 text-pink-900'
+                      }`}
+                    >
+                      <button 
+                        onClick={() => handleDeleteHighlight(hIdx)}
+                        className="absolute top-3 right-3 text-gray-400 hover:text-red-500 p-1.5 rounded-full transition-colors"
+                        title="刪除此重點"
+                      >
+                        <Trash size={14} />
+                      </button>
+                      <p className="font-semibold select-all pr-8 whitespace-pre-wrap">"{h.text}"</p>
+                      <div className="mt-2 text-xs text-gray-400 font-medium">
+                        劃記於 {new Date(h.createdAt).toLocaleDateString()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>,
@@ -1442,6 +1696,40 @@ export function CourseMaterialsStudentView({ subjectId, user }: { subjectId: str
                 className="w-full h-44 p-4 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50/30 text-gray-800 placeholder-gray-400 transition-all text-sm leading-relaxed"
                 placeholder="在此記錄您的個人學習重點、筆記、或是遇到的問題... 點擊儲存筆記即可永久儲存至您的個人帳戶中！"
               />
+
+              {/* 個人劃線重點庫 */}
+              {progressData[activeMat.id!]?.highlights && progressData[activeMat.id!]?.highlights!.length > 0 && (
+                <div className="mt-6 space-y-3">
+                  <h4 className="text-sm font-bold text-gray-700 flex items-center gap-1.5">
+                    <span>💡 劃線重點庫 ({progressData[activeMat.id!]?.highlights!.length})</span>
+                  </h4>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {progressData[activeMat.id!]?.highlights!.map((h, hIdx) => (
+                      <div 
+                        key={hIdx} 
+                        className={`p-3.5 rounded-2xl border relative text-xs leading-relaxed transition-all ${
+                          h.color === 'yellow' ? 'bg-yellow-50/70 border-yellow-200 text-yellow-900' :
+                          h.color === 'green' ? 'bg-green-50/70 border-green-200 text-green-900' :
+                          h.color === 'blue' ? 'bg-blue-50/70 border-blue-200 text-blue-900' :
+                          'bg-pink-50/70 border-pink-200 text-pink-900'
+                        }`}
+                      >
+                        <button 
+                          onClick={() => handleDeleteHighlight(hIdx)}
+                          className="absolute top-2.5 right-2.5 text-gray-400 hover:text-red-500 p-1 rounded-full transition-colors"
+                          title="刪除此重點"
+                        >
+                          <Trash size={12} />
+                        </button>
+                        <p className="font-semibold select-all pr-6 whitespace-pre-wrap">"{h.text}"</p>
+                        <div className="mt-2 text-[10px] text-gray-400 font-medium">
+                          劃記於 {new Date(h.createdAt).toLocaleDateString()}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             
             {!activeMat.contentUrl && !activeMat.markdownNotes && (!activeMat.attachments || activeMat.attachments.length === 0) && (
@@ -1460,6 +1748,89 @@ export function CourseMaterialsStudentView({ subjectId, user }: { subjectId: str
         )}
       </div>
 
+      {/* 劃線浮動工具列 */}
+      {selectedText && selectionPosition && createPortal(
+        <div 
+          className="highlighter-toolbar absolute z-[9999] flex items-center gap-1.5 bg-gray-900 border border-gray-800 text-white px-3 py-2 rounded-full shadow-2xl -translate-x-1/2 scale-100 animate-in fade-in duration-200"
+          style={{ 
+            left: `${selectionPosition.x}px`, 
+            top: `${selectionPosition.y}px` 
+          }}
+        >
+          {/* Colors */}
+          <button 
+            onClick={() => addHighlight('yellow')} 
+            className="w-5 h-5 rounded-full bg-yellow-300 hover:scale-110 active:scale-95 transition-transform" 
+            title="黃色劃線"
+          />
+          <button 
+            onClick={() => addHighlight('green')} 
+            className="w-5 h-5 rounded-full bg-green-300 hover:scale-110 active:scale-95 transition-transform" 
+            title="綠色劃線"
+          />
+          <button 
+            onClick={() => addHighlight('blue')} 
+            className="w-5 h-5 rounded-full bg-blue-300 hover:scale-110 active:scale-95 transition-transform" 
+            title="藍色劃線"
+          />
+          <button 
+            onClick={() => addHighlight('pink')} 
+            className="w-5 h-5 rounded-full bg-pink-300 hover:scale-110 active:scale-95 transition-transform" 
+            title="粉色劃線"
+          />
+          <div className="w-[1px] h-4 bg-gray-700 mx-1" />
+          <button 
+            onClick={appendSelectedToNotes} 
+            className="flex items-center gap-1 hover:text-indigo-300 text-xs font-bold px-1.5 py-0.5 rounded transition-colors"
+            title="匯入至個人筆記"
+          >
+            <Plus size={12}/> 筆記
+          </button>
+        </div>,
+        document.body
+      )}
+
+      {/* 筆記標記編輯工具列 */}
+      {clickedHighlight && createPortal(
+        <div 
+          className="highlight-menu absolute z-[9999] flex items-center gap-1.5 bg-gray-900 border border-gray-800 text-white px-3 py-2 rounded-full shadow-2xl -translate-x-1/2 scale-100 animate-in fade-in duration-200"
+          style={{ 
+            left: `${clickedHighlight.x}px`, 
+            top: `${clickedHighlight.y}px` 
+          }}
+        >
+          {/* Colors */}
+          <button 
+            onClick={() => updateHighlightColor(clickedHighlight.index, 'yellow')} 
+            className={`w-5 h-5 rounded-full bg-yellow-300 hover:scale-110 active:scale-95 transition-transform ${clickedHighlight.color === 'yellow' ? 'ring-2 ring-white ring-offset-2 ring-offset-gray-900' : ''}`} 
+            title="黃色劃線"
+          />
+          <button 
+            onClick={() => updateHighlightColor(clickedHighlight.index, 'green')} 
+            className={`w-5 h-5 rounded-full bg-green-300 hover:scale-110 active:scale-95 transition-transform ${clickedHighlight.color === 'green' ? 'ring-2 ring-white ring-offset-2 ring-offset-gray-900' : ''}`} 
+            title="綠色劃線"
+          />
+          <button 
+            onClick={() => updateHighlightColor(clickedHighlight.index, 'blue')} 
+            className={`w-5 h-5 rounded-full bg-blue-300 hover:scale-110 active:scale-95 transition-transform ${clickedHighlight.color === 'blue' ? 'ring-2 ring-white ring-offset-2 ring-offset-gray-900' : ''}`} 
+            title="藍色劃線"
+          />
+          <button 
+            onClick={() => updateHighlightColor(clickedHighlight.index, 'pink')} 
+            className={`w-5 h-5 rounded-full bg-pink-300 hover:scale-110 active:scale-95 transition-transform ${clickedHighlight.color === 'pink' ? 'ring-2 ring-white ring-offset-2 ring-offset-gray-900' : ''}`} 
+            title="粉色劃線"
+          />
+          <div className="w-[1px] h-4 bg-gray-700 mx-1" />
+          <button 
+            onClick={() => handleDeleteHighlight(clickedHighlight.index)} 
+            className="flex items-center gap-1 hover:text-red-400 text-xs font-bold px-1.5 py-0.5 rounded transition-colors text-red-300"
+            title="刪除劃線"
+          >
+            <Trash size={12}/> 刪除
+          </button>
+        </div>,
+        document.body
+      )}
 
     </div>
   );
@@ -1718,6 +2089,1287 @@ export function XPShop({ user, setUser }: { user: UserProfile, setUser: (u: User
           })}
         </div>
       </div>
+    </div>
+  );
+}
+
+export function StudyTimer() {
+  const [mode, setMode] = useState<'study' | 'short_break' | 'long_break'>('study');
+  const [minutes, setMinutes] = useState(25);
+  const [seconds, setSeconds] = useState(0);
+  const [isActive, setIsActive] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+
+  // Focus Island & Spirit companion states
+  const [panelStyle, setPanelStyle] = useState<'zen' | 'cyber' | 'nordic'>('zen');
+  const [tickSound, setTickSound] = useState<'none' | 'wooden' | 'chime' | 'gear'>('none');
+  const [spiritState, setSpiritState] = useState<'idle' | 'focusing' | 'distracted' | 'abandon'>('idle');
+  const [islandProgress, setIslandProgress] = useState(15); // 0 - 100
+  const [activeRightTab, setActiveRightTab] = useState<'island' | 'noise'>('island');
+
+  // White noise synthesizer states
+  const [rainActive, setRainActive] = useState(false);
+  const [rainVol, setRainVol] = useState(50);
+
+  const [wavesActive, setWavesActive] = useState(false);
+  const [wavesVol, setWavesVol] = useState(50);
+
+  const [windActive, setWindActive] = useState(false);
+  const [windVol, setWindVol] = useState(50);
+
+  const [brownActive, setBrownActive] = useState(false);
+  const [brownVol, setBrownVol] = useState(50);
+
+  // Web Audio Context refs
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  
+  // Rain Nodes refs
+  const rainSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const rainGainRef = useRef<GainNode | null>(null);
+
+  // Waves Nodes refs
+  const wavesSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const wavesGainRef = useRef<GainNode | null>(null);
+  const wavesLfoRef = useRef<OscillatorNode | null>(null);
+
+  // Forest Wind Nodes refs
+  const windSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const windGainRef = useRef<GainNode | null>(null);
+  const windFilterRef = useRef<BiquadFilterNode | null>(null);
+  const windLfoRef = useRef<OscillatorNode | null>(null);
+
+  // Deep Brown Nodes refs
+  const brownSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const brownGainRef = useRef<GainNode | null>(null);
+
+  // Play custom synth tick sounds
+  const playTickSound = (soundType: 'none' | 'wooden' | 'chime' | 'gear') => {
+    if (soundType === 'none') return;
+    try {
+      const ctx = getAudioContext();
+      if (!ctx) return;
+      const now = ctx.currentTime;
+      if (soundType === 'wooden') {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(450, now);
+        osc.frequency.exponentialRampToValueAtTime(150, now + 0.08);
+        gain.gain.setValueAtTime(0.12, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(now + 0.1);
+      } else if (soundType === 'chime') {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(1500, now);
+        gain.gain.setValueAtTime(0.05, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(now + 0.5);
+      } else if (soundType === 'gear') {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(2000, now);
+        osc.frequency.exponentialRampToValueAtTime(800, now + 0.015);
+        gain.gain.setValueAtTime(0.04, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(now + 0.03);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Timer useEffect with tick sound and island growth
+  useEffect(() => {
+    let interval: any = null;
+    if (isActive) {
+      if (mode === 'study' && spiritState !== 'distracted') {
+        setSpiritState('focusing');
+      }
+
+      interval = setInterval(() => {
+        // Ticking Sound Effect
+        if (soundEnabled && tickSound !== 'none') {
+          playTickSound(tickSound);
+        }
+
+        // Island Grow effect (0.4 progress point per second in study mode)
+        if (mode === 'study') {
+          setIslandProgress(prev => {
+            const next = prev + 0.4;
+            if (next >= 100) {
+              toast("✨ 恭喜！你的專念小島完全成熟了！精靈送給你 10 XP 當作勤奮獎勵！🏝️");
+              return 0; // reset
+            }
+            return next;
+          });
+        }
+
+        if (seconds === 0) {
+          if (minutes === 0) {
+            // Timer finished!
+            playAlertSound();
+            setIsActive(false);
+            setSpiritState('idle');
+            if (mode === 'study') {
+              toast("🎉 專注時間結束！休息一下吧！");
+              handleModeChange('short_break');
+            } else {
+              toast("💪 休息結束！準備好繼續專注了嗎？");
+              handleModeChange('study');
+            }
+          } else {
+            setMinutes(minutes - 1);
+            setSeconds(59);
+          }
+        } else {
+          setSeconds(seconds - 1);
+        }
+      }, 1000);
+    } else {
+      clearInterval(interval);
+    }
+    return () => clearInterval(interval);
+  }, [isActive, minutes, seconds, mode, tickSound, soundEnabled, spiritState]);
+
+  // Handle Tab distraction and Visibility Change
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        if (isActive && mode === 'study') {
+          setSpiritState('distracted');
+          setIslandProgress(prev => Math.max(0, prev - 3));
+          toast("⚠️ 偵測到您離開了專注頁面！讀書精靈正在失落哭泣，快回來和牠一起讀書吧！");
+        }
+      } else {
+        if (isActive && mode === 'study') {
+          setSpiritState('focusing');
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isActive, mode]);
+
+  const handleModeChange = (newMode: 'study' | 'short_break' | 'long_break') => {
+    setMode(newMode);
+    setIsActive(false);
+    setSpiritState('idle');
+    if (newMode === 'study') {
+      setMinutes(25);
+    } else if (newMode === 'short_break') {
+      setMinutes(5);
+    } else {
+      setMinutes(15);
+    }
+    setSeconds(0);
+  };
+
+  const playAlertSound = () => {
+    if (!soundEnabled) return;
+    try {
+      const ctx = getAudioContext();
+      if (!ctx) return;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.15); // A5
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.6);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const getAudioContext = (): AudioContext | null => {
+    if (typeof window === 'undefined') return null;
+    if (!audioCtxRef.current) {
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtxClass) {
+        audioCtxRef.current = new AudioCtxClass();
+      }
+    }
+    if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+      audioCtxRef.current.resume();
+    }
+    return audioCtxRef.current;
+  };
+
+  // Synthesize custom sound loops inside buffers
+  const createNoiseBuffer = (ctx: AudioContext, type: 'pink' | 'brown'): AudioBuffer => {
+    const bufferSize = ctx.sampleRate * 5; // 5 seconds of noise
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+
+    if (type === 'pink') {
+      let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+      for (let i = 0; i < bufferSize; i++) {
+        const white = Math.random() * 2 - 1;
+        b0 = 0.99886 * b0 + white * 0.0555179;
+        b1 = 0.99332 * b1 + white * 0.0750759;
+        b2 = 0.96900 * b2 + white * 0.1538520;
+        b3 = 0.86650 * b3 + white * 0.3104856;
+        b4 = 0.55000 * b4 + white * 0.5329522;
+        b5 = -0.7616 * b5 - white * 0.0168980;
+        const pink = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362;
+        b6 = white * 0.115926;
+        data[i] = pink * 0.05; // Normalizer
+      }
+    } else {
+      // Brown noise
+      let lastOut = 0.0;
+      for (let i = 0; i < bufferSize; i++) {
+        const white = Math.random() * 2 - 1;
+        data[i] = (lastOut + (0.02 * white)) / 1.02;
+        lastOut = data[i];
+        data[i] *= 1.5; // Gain compensator
+      }
+    }
+    return buffer;
+  };
+
+  // Audio Control Effects
+  useEffect(() => {
+    return () => {
+      // Cleanup all synthesis loops on unmount
+      stopRain();
+      stopWaves();
+      stopWind();
+      stopBrown();
+    };
+  }, []);
+
+  // Sync volumes when sliders change
+  useEffect(() => {
+    if (rainGainRef.current) {
+      rainGainRef.current.gain.value = rainActive ? rainVol / 100 : 0;
+    }
+  }, [rainVol, rainActive]);
+
+  useEffect(() => {
+    if (wavesGainRef.current) {
+      wavesGainRef.current.gain.value = wavesActive ? wavesVol / 100 : 0;
+    }
+  }, [wavesVol, wavesActive]);
+
+  useEffect(() => {
+    if (windGainRef.current) {
+      windGainRef.current.gain.value = windActive ? windVol / 100 : 0;
+    }
+  }, [windVol, windActive]);
+
+  useEffect(() => {
+    if (brownGainRef.current) {
+      brownGainRef.current.gain.value = brownActive ? brownVol / 100 : 0;
+    }
+  }, [brownVol, brownActive]);
+
+  // Rain sound setup
+  const toggleRain = () => {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    if (rainActive) {
+      stopRain();
+      setRainActive(false);
+    } else {
+      try {
+        const source = ctx.createBufferSource();
+        source.buffer = createNoiseBuffer(ctx, 'pink');
+        source.loop = true;
+
+        // Lowpass filter to make it sound like real rain falling
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(1000, ctx.currentTime);
+
+        const gainNode = ctx.createGain();
+        gainNode.gain.setValueAtTime(rainVol / 100, ctx.currentTime);
+
+        source.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        source.start();
+        rainSourceRef.current = source;
+        rainGainRef.current = gainNode;
+        setRainActive(true);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const stopRain = () => {
+    if (rainSourceRef.current) {
+      try {
+        rainSourceRef.current.stop();
+      } catch (e) {}
+      rainSourceRef.current = null;
+    }
+    rainGainRef.current = null;
+  };
+
+  // Ocean Waves setup
+  const toggleWaves = () => {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    if (wavesActive) {
+      stopWaves();
+      setWavesActive(false);
+    } else {
+      try {
+        const source = ctx.createBufferSource();
+        source.buffer = createNoiseBuffer(ctx, 'brown');
+        source.loop = true;
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(400, ctx.currentTime);
+
+        const gainNode = ctx.createGain();
+        gainNode.gain.setValueAtTime(0, ctx.currentTime); // start with 0, modulated by LFO
+
+        // LFO for ocean wave modulation (slow swell)
+        const lfo = ctx.createOscillator();
+        lfo.frequency.setValueAtTime(0.08, ctx.currentTime); // 12 seconds loop
+        
+        const lfoGain = ctx.createGain();
+        lfoGain.gain.setValueAtTime(0.35, ctx.currentTime); // swell amplitude
+
+        // Align center of modulation
+        const baseGain = ctx.createGain();
+        baseGain.gain.setValueAtTime(wavesVol / 100 * 0.4, ctx.currentTime);
+
+        lfo.connect(lfoGain);
+        lfoGain.connect(gainNode.gain);
+
+        source.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        lfo.start();
+        source.start();
+
+        wavesSourceRef.current = source;
+        wavesGainRef.current = gainNode;
+        wavesLfoRef.current = lfo;
+        setWavesActive(true);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const stopWaves = () => {
+    if (wavesSourceRef.current) {
+      try {
+        wavesSourceRef.current.stop();
+      } catch (e) {}
+      wavesSourceRef.current = null;
+    }
+    if (wavesLfoRef.current) {
+      try {
+        wavesLfoRef.current.stop();
+      } catch (e) {}
+      wavesLfoRef.current = null;
+    }
+    wavesGainRef.current = null;
+  };
+
+  // Forest Wind setup
+  const toggleWind = () => {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    if (windActive) {
+      stopWind();
+      setWindActive(false);
+    } else {
+      try {
+        const source = ctx.createBufferSource();
+        source.buffer = createNoiseBuffer(ctx, 'pink');
+        source.loop = true;
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(300, ctx.currentTime); // dynamic
+
+        const gainNode = ctx.createGain();
+        gainNode.gain.setValueAtTime(windVol / 100, ctx.currentTime);
+
+        // LFO to dynamically sweep filter frequency for breeze feel
+        const lfo = ctx.createOscillator();
+        lfo.frequency.setValueAtTime(0.05, ctx.currentTime); // 20 seconds wind cycle
+        
+        const lfoGain = ctx.createGain();
+        lfoGain.gain.setValueAtTime(150, ctx.currentTime); // sweeps between 150Hz and 450Hz
+
+        lfo.connect(lfoGain);
+        lfoGain.connect(filter.frequency);
+
+        source.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        lfo.start();
+        source.start();
+
+        windSourceRef.current = source;
+        windGainRef.current = gainNode;
+        windFilterRef.current = filter;
+        windLfoRef.current = lfo;
+        setWindActive(true);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const stopWind = () => {
+    if (windSourceRef.current) {
+      try {
+        windSourceRef.current.stop();
+      } catch (e) {}
+      windSourceRef.current = null;
+    }
+    if (windLfoRef.current) {
+      try {
+        windLfoRef.current.stop();
+      } catch (e) {}
+      windLfoRef.current = null;
+    }
+    windFilterRef.current = null;
+    windGainRef.current = null;
+  };
+
+  // Deep Brown Noise setup
+  const toggleBrown = () => {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    if (brownActive) {
+      stopBrown();
+      setBrownActive(false);
+    } else {
+      try {
+        const source = ctx.createBufferSource();
+        source.buffer = createNoiseBuffer(ctx, 'brown');
+        source.loop = true;
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(350, ctx.currentTime);
+
+        const gainNode = ctx.createGain();
+        gainNode.gain.setValueAtTime(brownVol / 100, ctx.currentTime);
+
+        source.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        source.start();
+        brownSourceRef.current = source;
+        brownGainRef.current = gainNode;
+        setBrownActive(true);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const stopBrown = () => {
+    if (brownSourceRef.current) {
+      try {
+        brownSourceRef.current.stop();
+      } catch (e) {}
+      brownSourceRef.current = null;
+    }
+    brownGainRef.current = null;
+  };
+
+  const toggleTimer = () => {
+    if (isActive) {
+      setSpiritState('abandon');
+      toast("(｡•́︿•̀｡) 精靈一臉失落... 不要氣餒，準備好隨時可重新出發！");
+    } else {
+      setSpiritState('focusing');
+    }
+    setIsActive(!isActive);
+  };
+
+  const resetTimer = () => {
+    setIsActive(false);
+    setSpiritState('idle');
+    if (mode === 'study') setMinutes(25);
+    else if (mode === 'short_break') setMinutes(5);
+    else setMinutes(15);
+    setSeconds(0);
+  };
+
+  const adjustTime = (amount: number) => {
+    const newM = Math.max(0, minutes + amount);
+    setMinutes(newM);
+  };
+
+  // UI styling classes matching selected theme
+  const getPanelStyles = () => {
+    switch (panelStyle) {
+      case 'cyber':
+        return {
+          wrapper: "bg-[#090A0F] text-cyan-400 p-8 rounded-[2.5rem] border-2 border-purple-600/40 shadow-[0_0_30px_rgba(168,85,247,0.3)] transition-all duration-500",
+          cardLeft: "bg-[#11131E]/95 border border-purple-500/30 text-white shadow-xl p-8 md:p-10 rounded-[2rem]",
+          cardRight: "bg-[#11131E]/95 border border-purple-500/30 text-white shadow-xl p-8 md:p-10 rounded-[2rem]",
+          accentBtn: "bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white border-none shadow-[0_0_15px_rgba(219,39,119,0.4)]",
+          titleText: "text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-pink-500 font-mono tracking-widest",
+          timerText: "text-cyan-400 font-mono tracking-widest drop-shadow-[0_0_12px_#22d3ee] font-black",
+          descText: "text-purple-300 font-mono text-xs",
+          controlBtn: "bg-purple-950/40 border border-purple-500/30 text-purple-200 hover:bg-purple-900/60"
+        };
+      case 'nordic':
+        return {
+          wrapper: "bg-[#EAEFF0] text-[#2F3E46] p-8 rounded-[2.5rem] border-2 border-[#CAD5D5] shadow-sm transition-all duration-500",
+          cardLeft: "bg-[#F4F7F6] border border-[#CAD5D5] text-[#2F3E46] shadow-inner p-8 md:p-10 rounded-[2rem]",
+          cardRight: "bg-[#F4F7F6] border border-[#CAD5D5] text-[#2F3E46] shadow-inner p-8 md:p-10 rounded-[2rem]",
+          accentBtn: "bg-[#354F52] hover:bg-[#2F3E46] text-white shadow-sm border-none",
+          titleText: "text-[#2F3E46] font-sans tracking-tight",
+          timerText: "text-[#354F52] font-sans font-black",
+          descText: "text-[#52796F] font-medium text-xs",
+          controlBtn: "bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
+        };
+      case 'zen':
+      default:
+        return {
+          wrapper: "bg-[#F5EFE4] text-[#4A3F35] p-8 rounded-[2.5rem] border-2 border-[#D7CDBC] shadow-md transition-all duration-500",
+          cardLeft: "bg-white border border-[#EAE6DF] text-[#4A3F35] shadow-sm p-8 md:p-10 rounded-[2rem]",
+          cardRight: "bg-white border border-[#EAE6DF] text-[#4A3F35] shadow-sm p-8 md:p-10 rounded-[2rem]",
+          accentBtn: "bg-[#C2A878] hover:bg-[#B19667] text-white border-none shadow-md",
+          titleText: "text-[#4A3F35] font-serif font-black",
+          timerText: "text-[#4A3F35] font-serif font-black",
+          descText: "text-[#8C7A6B] font-medium text-xs",
+          controlBtn: "bg-[#FDFBF7] border border-[#EAE6DF] text-[#8C7A6B] hover:bg-[#F5EFE4]"
+        };
+    }
+  };
+
+  const styles = getPanelStyles();
+
+  // Helper for island properties
+  const getIslandDetails = (prog: number) => {
+    if (prog < 20) {
+      return {
+        level: 1,
+        name: "嫩芽荒島 🏝️",
+        desc: "島上只有一片光禿的沙地，一株極小的綠色嫩芽正在探頭探腦...",
+        icon: "🌱",
+        bg: "from-amber-100/50 to-amber-200/30"
+      };
+    } else if (prog < 40) {
+      return {
+        level: 2,
+        name: "綠意小島 🍃",
+        desc: "小島開始泛著微微綠意，長出了幾叢可愛的小灌木，精靈正在為它澆水！",
+        icon: "🌿",
+        bg: "from-lime-100/60 to-emerald-200/40"
+      };
+    } else if (prog < 60) {
+      return {
+        level: 3,
+        name: "花漾之丘 🌸",
+        desc: "漫山遍野盛開了金黃與粉紅的小花，連空氣中都散發著專注的芬芳！",
+        icon: "🌺",
+        bg: "from-pink-100/60 to-rose-200/40"
+      };
+    } else if (prog < 80) {
+      return {
+        level: 4,
+        name: "茂密森林 🌳",
+        desc: "蔚藍的海風拂過，幾棵高聳的椰子樹與橡樹沙沙作響，吸引了小鳥前來停歇！",
+        icon: "🌴",
+        bg: "from-emerald-100/60 to-teal-200/40"
+      };
+    } else {
+      return {
+        level: 5,
+        name: "奇幻樂園 🏰",
+        desc: "小島的中央建起了一座專注魔法書屋，精靈在此刻升級為閃耀的專注大導師！",
+        icon: "🏰",
+        bg: "from-indigo-100/60 to-purple-200/40"
+      };
+    }
+  };
+
+  const getSpiritBubble = () => {
+    switch (spiritState) {
+      case 'focusing':
+        return {
+          emoji: "٩(๑•̀ㅂ•́)و",
+          text: "專注大作戰！我們一分一秒都在踏實前行，精靈在默默為你加持！",
+          color: "bg-emerald-500/90 text-white"
+        };
+      case 'distracted':
+        return {
+          emoji: "(つД`) 嗚嗚...",
+          text: "偵測到分心！你跑去哪裡玩了啦... 精靈一個人好寂寞，快回來專心！",
+          color: "bg-rose-500/90 text-white animate-bounce"
+        };
+      case 'abandon':
+        return {
+          emoji: "(｡•́︿•̀｡)",
+          text: "專注暫時中斷了... 是不是累了呢？精靈在島上陪你喝杯茶，等你想再開始！",
+          color: "bg-amber-500/90 text-white"
+        };
+      case 'idle':
+      default:
+        return {
+          emoji: "(⁎⁍̴̛ᴗ⁍̴̛⁎)",
+          text: "嗨！今天也要一起讀書嗎？我會在島上乖乖守護你、為你澆灌專注喔～",
+          color: "bg-indigo-500/90 text-white"
+        };
+    }
+  };
+
+  const island = getIslandDetails(islandProgress);
+  const spirit = getSpiritBubble();
+
+  return (
+    <div className={styles.wrapper}>
+      {/* Dynamic Ambient Header Settings bar */}
+      <div className="flex flex-col sm:flex-row gap-4 justify-between items-center mb-8 pb-6 border-b border-gray-200/30">
+        <div>
+          <h2 className={`text-2xl font-black ${styles.titleText}`}>
+            自修室專注沙盒
+          </h2>
+          <p className="text-[11px] text-gray-500 mt-0.5 font-bold">自訂專屬氛圍，讓每一次點滴累積都有溫度與回報</p>
+        </div>
+
+        <div className="flex flex-wrap gap-3 items-center">
+          <div className="flex bg-gray-200/50 p-1 rounded-xl text-xs font-bold border border-gray-300/30">
+            <button
+              onClick={() => setPanelStyle('zen')}
+              className={`px-3 py-1.5 rounded-lg transition-all ${panelStyle === 'zen' ? 'bg-[#C2A878] text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+            >
+              🏮 禪風
+            </button>
+            <button
+              onClick={() => setPanelStyle('cyber')}
+              className={`px-3 py-1.5 rounded-lg transition-all ${panelStyle === 'cyber' ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+            >
+              ⚡ 霓虹
+            </button>
+            <button
+              onClick={() => setPanelStyle('nordic')}
+              className={`px-3 py-1.5 rounded-lg transition-all ${panelStyle === 'nordic' ? 'bg-[#52796F] text-white shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+            >
+              🌲 北歐
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-bold text-gray-400">指針：</span>
+            <select
+              value={tickSound}
+              onChange={e => setTickSound(e.target.value as any)}
+              className="text-xs font-bold bg-white/80 border border-gray-200 rounded-lg px-2 py-1.5 text-gray-700 outline-none focus:border-indigo-400 shadow-sm"
+            >
+              <option value="none">🔇 靜音倒數</option>
+              <option value="wooden">🏮 木魚敲擊</option>
+              <option value="chime">🎐 清脆風鈴</option>
+              <option value="gear">⚙️ 機械齒輪</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 text-left">
+        {/* Left Card: Pomodoro Timer */}
+        <div className={`${styles.cardLeft} flex flex-col justify-between`}>
+          <div>
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold flex items-center gap-2">
+                <span>⏱️</span> 專注番茄鐘
+              </h3>
+              <button 
+                onClick={() => setSoundEnabled(!soundEnabled)}
+                className={`p-2 rounded-xl border transition-all ${soundEnabled ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-gray-50 border-gray-200 text-gray-400'}`}
+                title={soundEnabled ? '提示音：開啟' : '提示音：靜音'}
+              >
+                {soundEnabled ? <Volume2 size={16}/> : <VolumeX size={16}/>}
+              </button>
+            </div>
+
+            <div className="flex bg-gray-200/50 p-1 rounded-xl mb-6 text-[11px] font-bold">
+              <button 
+                onClick={() => handleModeChange('study')}
+                className={`flex-1 py-2.5 rounded-lg transition-all ${mode === 'study' ? 'bg-white text-[#2F3E46] shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+              >
+                🎯 專注 (25m)
+              </button>
+              <button 
+                onClick={() => handleModeChange('short_break')}
+                className={`flex-1 py-2.5 rounded-lg transition-all ${mode === 'short_break' ? 'bg-white text-[#2F3E46] shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+              >
+                ☕ 休息 (5m)
+              </button>
+              <button 
+                onClick={() => handleModeChange('long_break')}
+                className={`flex-1 py-2.5 rounded-lg transition-all ${mode === 'long_break' ? 'bg-white text-[#2F3E46] shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+              >
+                🛋️ 深度 (15m)
+              </button>
+            </div>
+
+            <div className="text-center py-8 relative">
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 flex flex-col gap-2">
+                <button onClick={() => adjustTime(1)} className={`w-8 h-8 flex items-center justify-center rounded-lg text-xs font-black transition-all ${styles.controlBtn}`}>
+                  +1
+                </button>
+                <button onClick={() => adjustTime(-1)} className={`w-8 h-8 flex items-center justify-center rounded-lg text-xs font-black transition-all ${styles.controlBtn}`}>
+                  -1
+                </button>
+              </div>
+
+              <div className={`text-6xl md:text-7xl font-black tracking-wider ${styles.timerText}`}>
+                {String(minutes).padStart(2, '0')}:{String(seconds).padStart(2, '0')}
+              </div>
+
+              <div className={`mt-3 ${styles.descText}`}>
+                {mode === 'study' ? '🧠 深 度 專 注 中' : mode === 'short_break' ? '☕ 讓 腦 袋 稍 作 歇 息' : '🛋️ 完 全 放 鬆 精 神'}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-3 mt-6">
+            <button 
+              onClick={toggleTimer}
+              className={`flex-1 py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md hover:shadow-lg ${
+                isActive 
+                  ? 'bg-rose-500 hover:bg-rose-600 text-white border-none' 
+                  : styles.accentBtn
+              }`}
+            >
+              {isActive ? <><Pause size={18}/> 暫停專注</> : <><Play size={18}/> 開始專注</>}
+            </button>
+            <button 
+              onClick={resetTimer}
+              className="px-4 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold border border-gray-200 transition-all flex items-center justify-center"
+              title="重置計時"
+            >
+              <RotateCcw size={18}/>
+            </button>
+          </div>
+        </div>
+
+        {/* Right Card: Tabs with Focus Island & Noise */}
+        <div className={`${styles.cardRight} flex flex-col justify-between`}>
+          <div>
+            <div className="flex bg-gray-200/50 p-1 rounded-xl mb-6 text-xs font-bold border border-gray-300/20">
+              <button 
+                onClick={() => setActiveRightTab('island')}
+                className={`flex-1 py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${activeRightTab === 'island' ? 'bg-white text-[#2F3E46] shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+              >
+                🏝️ 專注伴讀精靈
+              </button>
+              <button 
+                onClick={() => setActiveRightTab('noise')}
+                className={`flex-1 py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${activeRightTab === 'noise' ? 'bg-white text-[#2F3E46] shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+              >
+                🎧 白噪音降噪
+              </button>
+            </div>
+
+            {activeRightTab === 'island' ? (
+              <div className="space-y-4">
+                {/* Growable Focus Island Sandbox UI */}
+                <div className={`relative rounded-2xl p-5 bg-gradient-to-b ${island.bg} border border-white/40 overflow-hidden flex flex-col items-center justify-center text-center py-6 shadow-sm`}>
+                  
+                  {/* Distraction Overlay if spirit is distracted */}
+                  {spiritState === 'distracted' && (
+                    <div className="absolute inset-0 bg-blue-900/30 backdrop-blur-[1px] pointer-events-none animate-pulse flex items-center justify-center z-30">
+                      <span className="text-4xl animate-bounce">🌧️🌧️</span>
+                    </div>
+                  )}
+
+                  {/* Level Badge */}
+                  <div className="absolute top-3 right-3 bg-white/70 backdrop-blur-sm px-2.5 py-1 rounded-full text-[10px] font-black text-indigo-700 border border-indigo-200/40">
+                    島嶼等級 LV.{island.level}
+                  </div>
+
+                  {/* Animated Island Visual Container */}
+                  <div className="relative w-36 h-36 flex items-center justify-center mt-2">
+                    
+                    {/* Floating Island Base */}
+                    <div className="absolute bottom-4 w-28 h-6 bg-[#D4A373]/80 rounded-full blur-xs animate-pulse" />
+                    <div className="absolute bottom-5 w-24 h-10 bg-[#8B5E3C] rounded-b-3xl border-t border-amber-800" />
+                    <div className="absolute bottom-11 w-26 h-5 bg-[#A3B18A] rounded-full" />
+
+                    {/* Dynamic Growth Asset (Icon) */}
+                    <div className="absolute bottom-11 text-4xl animate-bounce duration-1000 z-10 select-none">
+                      {island.icon}
+                    </div>
+
+                    {/* The Companion Spirit avatar */}
+                    <div className={`absolute bottom-10 left-6 text-2xl z-20 transition-all duration-300
+                      ${spiritState === 'focusing' ? 'animate-pulse scale-110' : spiritState === 'distracted' ? 'animate-bounce' : 'animate-bounce scale-100'}
+                    `}>
+                      🐹
+                    </div>
+
+                    {/* Extra elements based on level */}
+                    {island.level >= 3 && (
+                      <div className="absolute bottom-12 right-6 text-lg animate-pulse">🌸</div>
+                    )}
+                    {island.level >= 4 && (
+                      <div className="absolute bottom-16 left-3 text-lg">🐦</div>
+                    )}
+                    {island.level >= 5 && (
+                      <div className="absolute top-4 text-xs bg-yellow-400 px-1 py-0.5 rounded text-white font-extrabold animate-bounce">書屋 🏠</div>
+                    )}
+                  </div>
+
+                  {/* Bubble speech */}
+                  <div className={`mt-4 px-4 py-2 rounded-2xl text-xs max-w-xs transition-all border ${spirit.color} shadow-md relative z-40`}>
+                    <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 bg-inherit border-t border-l border-white/20" />
+                    <div className="font-extrabold mb-0.5 flex items-center justify-center gap-1">
+                      <span>{spirit.emoji}</span> 讀書精靈
+                    </div>
+                    <div className="text-[11px] leading-relaxed opacity-95">{spirit.text}</div>
+                  </div>
+                </div>
+
+                {/* Progress bar */}
+                <div className="bg-gray-100/80 p-4 rounded-xl border border-gray-200/60 text-xs">
+                  <div className="flex justify-between font-bold text-gray-500 mb-1">
+                    <span>{island.name}</span>
+                    <span>{Math.round(islandProgress)}% 成長度</span>
+                  </div>
+                  <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
+                    <div 
+                      className="bg-indigo-500 h-full transition-all duration-500 bg-gradient-to-r from-teal-400 to-indigo-500"
+                      style={{ width: `${islandProgress}%` }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-2 italic leading-relaxed">
+                    {island.desc}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4 max-h-[220px] overflow-y-auto pr-1">
+                {/* Rain noise */}
+                <div className="bg-white/50 border border-gray-200 p-3 rounded-xl flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xl">🌧️</span>
+                    <div>
+                      <h4 className="font-extrabold text-xs">窗外春雨聲</h4>
+                      <p className="text-[9px] text-gray-400">粉紅噪音 + 濾波</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="range" 
+                      min="0" 
+                      max="100" 
+                      value={rainVol} 
+                      onChange={e => setRainVol(Number(e.target.value))}
+                      disabled={!rainActive}
+                      className="w-16 accent-[#C2A878] opacity-80"
+                    />
+                    <button 
+                      onClick={toggleRain}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all ${rainActive ? 'bg-[#C2A878] text-white shadow-sm border-none' : 'bg-gray-100 text-gray-500 border'}`}
+                    >
+                      {rainActive ? '播放中' : '靜音'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Ocean Waves */}
+                <div className="bg-white/50 border border-gray-200 p-3 rounded-xl flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xl">🌊</span>
+                    <div>
+                      <h4 className="font-extrabold text-xs">海浪拍打聲</h4>
+                      <p className="text-[9px] text-gray-400">大地雜訊 + 12s潮汐</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="range" 
+                      min="0" 
+                      max="100" 
+                      value={wavesVol} 
+                      onChange={e => setWavesVol(Number(e.target.value))}
+                      disabled={!wavesActive}
+                      className="w-16 accent-[#C2A878] opacity-80"
+                    />
+                    <button 
+                      onClick={toggleWaves}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all ${wavesActive ? 'bg-[#C2A878] text-white shadow-sm border-none' : 'bg-gray-100 text-gray-500 border'}`}
+                    >
+                      {wavesActive ? '播放中' : '靜音'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Forest wind */}
+                <div className="bg-white/50 border border-gray-200 p-3 rounded-xl flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xl">🌲</span>
+                    <div>
+                      <h4 className="font-extrabold text-xs">林間微風聲</h4>
+                      <p className="text-[9px] text-gray-400">粉紅噪音 + 20s掃頻</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="range" 
+                      min="0" 
+                      max="100" 
+                      value={windVol} 
+                      onChange={e => setWindVol(Number(e.target.value))}
+                      disabled={!windActive}
+                      className="w-16 accent-[#C2A878] opacity-80"
+                    />
+                    <button 
+                      onClick={toggleWind}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all ${windActive ? 'bg-[#C2A878] text-white shadow-sm border-none' : 'bg-gray-100 text-gray-500 border'}`}
+                    >
+                      {windActive ? '播放中' : '靜音'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Deep Brown Noise */}
+                <div className="bg-white/50 border border-gray-200 p-3 rounded-xl flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xl">🟫</span>
+                    <div>
+                      <h4 className="font-extrabold text-xs">深沉褐噪聲</h4>
+                      <p className="text-[9px] text-gray-400">純褐噪音，阻絕干擾</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="range" 
+                      min="0" 
+                      max="100" 
+                      value={brownVol} 
+                      onChange={e => setBrownVol(Number(e.target.value))}
+                      disabled={!brownActive}
+                      className="w-16 accent-[#C2A878] opacity-80"
+                    />
+                    <button 
+                      onClick={toggleBrown}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all ${brownActive ? 'bg-[#C2A878] text-white shadow-sm border-none' : 'bg-gray-100 text-gray-500 border'}`}
+                    >
+                      {brownActive ? '播放中' : '靜音'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white border border-[#EAE6DF] rounded-2xl p-3 text-[10px] text-gray-400 leading-relaxed mt-4">
+            💡 **互動守護秘訣：** 在您專注研讀時，切勿切換到其他瀏覽器分頁，否則讀書精靈會難過並在島上下起冰雨喔！
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function LearningAnalyticsDashboard({ subjectId, user }: { subjectId: string, user: UserProfile }) {
+  const [loading, setLoading] = useState(true);
+  const [materials, setMaterials] = useState<CourseMaterial[]>([]);
+  const [progress, setProgress] = useState<MaterialProgress[]>([]);
+  const [attempts, setAttempts] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!user?.uid || !subjectId) return;
+
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        // 1. Fetch all course materials for this subject
+        const qMats = query(collection(db, 'materials'), where('subjectId', '==', subjectId));
+        const snapMats = await getDocs(qMats);
+        const matsData = snapMats.docs.map(d => ({ id: d.id, ...d.data() } as CourseMaterial));
+        setMaterials(matsData);
+
+        // 2. Fetch all progress records for this user & subject
+        const qProg = query(collection(db, 'material_progress'), where('userId', '==', user.uid), where('subjectId', '==', subjectId));
+        const snapProg = await getDocs(qProg);
+        const progData = snapProg.docs.map(d => d.data() as MaterialProgress);
+        setProgress(progData);
+
+        // 3. Fetch all test attempts for this user & subject
+        const qAttempts = query(collection(db, 'attempts'), where('userId', '==', user.uid), where('subject', '==', subjectId));
+        const snapAttempts = await getDocs(qAttempts);
+        const attemptsData = snapAttempts.docs.map(d => ({ id: d.id, ...d.data() }));
+        // Sort chronologically by timestamp
+        attemptsData.sort((a, b) => a.timestamp - b.timestamp);
+        setAttempts(attemptsData);
+      } catch (err) {
+        console.error("Error fetching analytics data:", err);
+      }
+      setLoading(false);
+    };
+
+    fetchData();
+  }, [subjectId, user?.uid]);
+
+  if (loading) {
+    return (
+      <div className="bg-white p-10 rounded-[2rem] border border-gray-100 text-center text-gray-500 py-20">
+        <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+        載入學習數據統計中，請稍候...
+      </div>
+    );
+  }
+
+  // Calculate stats
+  const totalStudySeconds = progress.reduce((acc, curr) => acc + (curr.timeSpent || 0), 0);
+  const totalStudyMinutes = Math.round(totalStudySeconds / 60);
+  const completedMaterialsCount = progress.filter(p => p.completed).length;
+  const totalMaterialsCount = materials.length;
+  const completionRate = totalMaterialsCount > 0 ? Math.round((completedMaterialsCount / totalMaterialsCount) * 100) : 0;
+  
+  const validScores = attempts.map(a => a.score).filter(s => typeof s === 'number');
+  const avgScore = validScores.length > 0 ? Math.round(validScores.reduce((a, b) => a + b, 0) / validScores.length) : 0;
+  const maxScore = validScores.length > 0 ? Math.max(...validScores) : 0;
+  const totalQuizzes = attempts.length;
+
+  // Chart 1: Time spent per material
+  const timeChartData = materials.map(m => {
+    const p = progress.find(prog => prog.materialId === m.id);
+    const minutes = p ? Math.round((p.timeSpent || 0) / 60) : 0;
+    return {
+      name: m.title.length > 10 ? m.title.substring(0, 10) + '...' : m.title,
+      '學習時間(分鐘)': minutes
+    };
+  });
+
+  // Chart 2: Test Scores Progression
+  const scoreChartData = attempts.map((a, idx) => {
+    const dateStr = new Date(a.timestamp).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' });
+    return {
+      name: `試煉 #${idx + 1}`,
+      '得分': a.score,
+      '答對率(%)': a.accuracy || 0,
+      date: dateStr
+    };
+  });
+
+  // Chart 3: Completion Pie Data
+  const pieData = [
+    { name: '已研讀完成', value: completedMaterialsCount },
+    { name: '未研讀章節', value: Math.max(0, totalMaterialsCount - completedMaterialsCount) }
+  ];
+  const PIE_COLORS = ['#10B981', '#E5E7EB'];
+
+  return (
+    <div className="space-y-8 text-left">
+      {/* Metrics Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-white border border-gray-100 p-6 rounded-[2rem] shadow-sm">
+          <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">⏳ 研讀總時數</div>
+          <div className="text-3xl font-black text-indigo-600 font-mono">
+            {totalStudyMinutes} <span className="text-sm font-bold text-gray-500">分鐘</span>
+          </div>
+          <p className="text-[10px] text-gray-400 mt-2">來自您的教材停留計時統計</p>
+        </div>
+
+        <div className="bg-white border border-gray-100 p-6 rounded-[2rem] shadow-sm">
+          <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">🎯 教材研讀率</div>
+          <div className="text-3xl font-black text-[#C2A878] font-mono">
+            {completionRate}%
+          </div>
+          <p className="text-[10px] text-gray-400 mt-2">共完成 {completedMaterialsCount} / {totalMaterialsCount} 個章節</p>
+        </div>
+
+        <div className="bg-white border border-gray-100 p-6 rounded-[2rem] shadow-sm">
+          <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">📈 測驗平均分</div>
+          <div className="text-3xl font-black text-emerald-600 font-mono">
+            {avgScore} <span className="text-sm font-bold text-gray-500">分</span>
+          </div>
+          <p className="text-[10px] text-gray-400 mt-2">基於最近 {totalQuizzes} 次隨堂任務</p>
+        </div>
+
+        <div className="bg-white border border-gray-100 p-6 rounded-[2rem] shadow-sm">
+          <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">🏆 歷史最高分</div>
+          <div className="text-3xl font-black text-amber-500 font-mono">
+            {maxScore} <span className="text-sm font-bold text-gray-500">分</span>
+          </div>
+          <p className="text-[10px] text-gray-400 mt-2">繼續保持並刷新您的巔峰紀錄！</p>
+        </div>
+      </div>
+
+      {/* Visual Charts Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Chart 1: Time Spent (Bar) */}
+        <div className="bg-white border border-gray-100 p-6 rounded-[2rem] shadow-sm lg:col-span-2">
+          <h3 className="font-bold text-gray-900 mb-6 flex items-center gap-2">
+            📊 各章節停留與研讀時數分佈 (分鐘)
+          </h3>
+          {timeChartData.length > 0 && timeChartData.some(d => d['學習時間(分鐘)'] > 0) ? (
+            <div className="w-full h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={timeChartData} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#6b7280' }} />
+                  <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} />
+                  <Tooltip cursor={{ fill: '#f9fafb' }} />
+                  <Bar dataKey="學習時間(分鐘)" fill="#6366F1" radius={[8, 8, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="h-72 flex items-center justify-center text-gray-400 border border-dashed border-gray-200 rounded-2xl">
+              目前暫無章節研讀時間統計，趕緊點擊教材區開始閱讀吧！
+            </div>
+          )}
+        </div>
+
+        {/* Chart 3: Completion Pie */}
+        <div className="bg-white border border-gray-100 p-6 rounded-[2rem] shadow-sm">
+          <h3 className="font-bold text-gray-900 mb-6 flex items-center gap-2">
+            🍩 知識覆蓋與完成度
+          </h3>
+          {totalMaterialsCount > 0 ? (
+            <div className="w-full h-72 flex flex-col items-center justify-center">
+              <div className="w-full h-48 relative">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={pieData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={55}
+                      outerRadius={75}
+                      paddingAngle={5}
+                      dataKey="value"
+                    >
+                      {pieData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+                {/* Center Label */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span className="text-2xl font-black text-gray-800 font-mono">{completionRate}%</span>
+                  <span className="text-[10px] text-gray-400 font-bold">教材完成率</span>
+                </div>
+              </div>
+              <div className="flex gap-4 mt-2 text-xs font-semibold">
+                <div className="flex items-center gap-1.5 text-gray-600">
+                  <span className="w-3 h-3 bg-[#10B981] rounded-full"></span>
+                  已完成 ({completedMaterialsCount})
+                </div>
+                <div className="flex items-center gap-1.5 text-gray-400">
+                  <span className="w-3 h-3 bg-gray-200 rounded-full"></span>
+                  未研讀 ({Math.max(0, totalMaterialsCount - completedMaterialsCount)})
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="h-72 flex items-center justify-center text-gray-400 border border-dashed border-gray-200 rounded-2xl">
+              此科目下目前無任何教材
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Chart 2: Test Scores Progression (Line) */}
+      <div className="bg-white border border-gray-100 p-6 rounded-[2rem] shadow-sm">
+        <h3 className="font-bold text-gray-900 mb-6 flex items-center gap-2">
+          📈 任務試煉得分與答對率變化趨勢
+        </h3>
+        {scoreChartData.length > 0 ? (
+          <div className="w-full h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={scoreChartData} margin={{ top: 10, right: 20, left: -20, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#6b7280' }} />
+                <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#6b7280' }} />
+                <Tooltip />
+                <Legend wrapperStyle={{ fontSize: 12, paddingTop: 10 }} />
+                <Line type="monotone" dataKey="得分" stroke="#F59E0B" strokeWidth={3} activeDot={{ r: 8 }} />
+                <Line type="monotone" dataKey="答對率(%)" stroke="#10B981" strokeWidth={2} strokeDasharray="5 5" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="h-72 flex items-center justify-center text-gray-400 border border-dashed border-gray-200 rounded-2xl">
+            目前暫無任務測驗記錄，快去「測驗任務」頁面發起首場挑戰吧！ 🚀
+          </div>
+        )}
+      </div>
+
+      {/* Recent Attempts History */}
+      {attempts.length > 0 && (
+        <div className="bg-white border border-gray-100 p-6 md:p-8 rounded-[2rem] shadow-sm">
+          <h3 className="font-bold text-gray-900 mb-6 flex items-center gap-2">
+            📜 近期測驗試煉歷程
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead>
+                <tr className="border-b border-gray-100 text-gray-400 font-bold">
+                  <th className="py-3 px-4">試煉場次</th>
+                  <th className="py-3 px-4">試煉時間</th>
+                  <th className="py-3 px-4 text-center">測驗得分</th>
+                  <th className="py-3 px-4 text-center">答對率</th>
+                  <th className="py-3 px-4 text-center">作弊次數</th>
+                  <th className="py-3 px-4 text-right">花費時間</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {[...attempts].reverse().slice(0, 5).map((a, idx) => {
+                  const minutes = Math.floor((a.timeTaken || 0) / 60000);
+                  const seconds = Math.floor(((a.timeTaken || 0) % 60000) / 1000);
+                  return (
+                    <tr key={a.id || idx} className="text-gray-700 hover:bg-gray-50/50 transition-colors">
+                      <td className="py-3.5 px-4 font-bold text-gray-900">隨堂試煉 #{attempts.length - idx}</td>
+                      <td className="py-3.5 px-4 text-xs text-gray-400">{new Date(a.timestamp).toLocaleString()}</td>
+                      <td className="py-3.5 px-4 text-center font-black text-amber-600 font-mono text-base">{a.score}</td>
+                      <td className="py-3.5 px-4 text-center">
+                        <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${a.accuracy >= 80 ? 'bg-green-50 text-green-600' : a.accuracy >= 60 ? 'bg-yellow-50 text-yellow-600' : 'bg-red-50 text-red-600'}`}>
+                          {a.accuracy}%
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-center font-semibold font-mono text-gray-500">{a.cheatCount || 0}次</td>
+                      <td className="py-3.5 px-4 text-right text-xs font-mono font-medium text-gray-400">
+                        {minutes > 0 ? `${minutes}分` : ''}{seconds}秒
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
